@@ -19,7 +19,7 @@ data_output_filter_prefix <- file.path("Data", "data_out", "carbon", "Carbon_fil
 data_output_splined_prefix <- file.path("Data", "data_out", "carbon", "Carbon_splined_NSW")
 
 # ---- Load helper functions ----
-source("R-scripts/extract_data_for_func.R")
+source("R-scripts/1_2_extract_data_for_func.R")
 
 # ---- Load and combine data ----
 files <- list.files(path = data_in_prefix, full.names = TRUE)

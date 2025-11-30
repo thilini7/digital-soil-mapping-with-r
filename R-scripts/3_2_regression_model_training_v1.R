@@ -15,8 +15,8 @@ HomeDir <- getwd()
 mod.type <- "mod.regression.oc"
 
 # Optional helpers
-if (file.exists("R-scripts/func.R")) {
-  source("R-scripts/func.R")
+if (file.exists("R-scripts/3_3_func.R")) {
+  source("R-scripts/3_3_func.R")
 }
 
 # Create output dirs
