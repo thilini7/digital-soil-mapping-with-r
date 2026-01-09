@@ -25,20 +25,47 @@ source("R-scripts/1_2_extract_data_for_func.R")
 files <- list.files(path = data_in_prefix, full.names = TRUE)
 dfs <- lapply(files, read.csv)
 
-common_cols <- Reduce(intersect, lapply(dfs, names))
-cat("✅ Common columns:\n", paste(common_cols, collapse = ", "), "\n")
+# Required columns for analysis
+required_cols <- c("Latitude", "Longitude", "UpperDepth", "LowerDepth", "Value")
 
 dfs <- lapply(dfs, function(x) {
-  x <- x[, common_cols, drop = FALSE]
-  if ("Location_ID" %in% names(x)) x$Location_ID <- as.character(x$Location_ID)
+  # Create Location_ID if it doesn't exist (use alternative identifier columns)
+  if (!"Location_ID" %in% names(x)) {
+    if ("Soilprofileid" %in% names(x)) {
+      x$Location_ID <- as.character(x$Soilprofileid)
+    } else if ("Observation_ID" %in% names(x)) {
+      x$Location_ID <- as.character(x$Observation_ID)
+    } else {
+      x$Location_ID <- as.character(seq_len(nrow(x)))
+    }
+  }
+  
+  # Check if all required columns exist
+  missing_cols <- setdiff(required_cols, names(x))
+  if (length(missing_cols) > 0) {
+    warning(paste("Skipping file - missing columns:", paste(missing_cols, collapse = ", ")))
+    return(NULL)
+  }
+  
+  # Standardize column types
+  x$Location_ID <- as.character(x$Location_ID)
+  if ("SampleDate" %in% names(x)) x$SampleDate <- as.character(x$SampleDate)
+  
   num_cols <- c("UpperDepth", "LowerDepth", "Value", "Latitude", "Longitude")
   for (col in num_cols) {
     if (col %in% names(x)) {
       x[[col]] <- suppressWarnings(as.numeric(as.character(x[[col]])))
     }
   }
-  x
+  
+  # Keep only needed columns
+  keep_cols <- intersect(names(x), c("Location_ID", "SampleDate", required_cols))
+  x[, keep_cols, drop = FALSE]
 })
+
+# Remove NULL entries (files that were skipped)
+dfs <- Filter(Negate(is.null), dfs)
+
 df <- dplyr::bind_rows(dfs)
 if ("X" %in% names(df)) df$X <- NULL
 
