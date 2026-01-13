@@ -1,9 +1,10 @@
 # ==============================================================================
 # Script: Convert ANSIS JSON to TERN Soil Data Federator CSV Format
 # Description: Converts ANSIS JSON soil data files to a CSV format similar to 
-#              TERNSoilDataFederator output
+#              TERNSoilDataFederator output. Processes all soil properties.
 # Author: Digital Soil Mapping Project
 # Date: 2026-01-12
+# Updated: 2026-01-13 - Generic script for all soil property data
 # ==============================================================================
 
 # Load required libraries
@@ -351,7 +352,7 @@ extractPhData <- function(json_file, output_file = NULL, method = NULL) {
 # ==============================================================================
 
 # ==============================================================================
-# Main Execution - Extract pH Data
+# Main Execution - Process Soil Property Data
 # ==============================================================================
 
 # Only run if this script is being executed directly (not sourced)
@@ -382,59 +383,76 @@ if (sys.nframe() == 0 || !exists("SOURCED_ONLY")) {
   setwd(project_root)
   message("Working directory: ", getwd())
   
-  # Find JSON files in the ansis_ph_sites directory
-  json_dir <- "Data/data_in/ansis_data/ansis_ph_sites"
+  # ============================================================================
+  # CONFIGURATION - Change these paths for each property
+  # ============================================================================
+  
+  # Input: Directory containing JSON files for the property
+  json_dir <- "Data/data_in/ansis_data/ansis_oc_sites"
+  
+  # Output: Directory where CSV files will be saved
+  output_dir <- "Data/data_out/ansis_lab_measurements/oc"
+  
+  # ============================================================================
+  
+  # Find JSON files
   json_files <- list.files(json_dir, pattern = "\\.json$", full.names = TRUE)
   
   if (length(json_files) == 0) {
     stop("No JSON files found in: ", json_dir)
   }
   
+  message("\n========================================")
+  message("ANSIS JSON to CSV Conversion")
+  message("========================================")
+  message("Input directory: ", json_dir)
+  message("Output directory: ", output_dir)
+  message("JSON files found: ", length(json_files))
+  
   # Process all JSON files
-  all_ph_data <- data.frame()
+  all_data <- data.frame()
   
   for (input_json in json_files) {
-    message("\n=== Processing: ", basename(input_json), " ===")
+    message("\nProcessing: ", basename(input_json))
     
     # Convert all properties from JSON
-    all_data <- convertANSIStoTERNFormat(json_file = input_json)
+    json_data <- convertANSIStoTERNFormat(json_file = input_json)
     
     # Include all LaboratoryMeasurement records
-    lab_data <- all_data[all_data$PropertyType == "LaboratoryMeasurement", ]
+    lab_data <- json_data[json_data$PropertyType == "LaboratoryMeasurement", ]
     
-    all_ph_data <- rbind(all_ph_data, lab_data)
+    all_data <- rbind(all_data, lab_data)
   }
   
   # Create output directory if not exists
-  output_dir <- "Data/data_out/ansis_lab_measurements"
   if (!dir.exists(output_dir)) {
     dir.create(output_dir, recursive = TRUE)
   }
   
   # Get unique lab methods
-  lab_methods <- unique(all_ph_data$ObservedProperty)
+  lab_methods <- unique(all_data$ObservedProperty)
   
   message("\n=== Generating CSV files by method ===")
   
   # Save separate CSV for each lab method
   for (method in lab_methods) {
-    method_data <- all_ph_data[all_ph_data$ObservedProperty == method, ]
+    method_data <- all_data[all_data$ObservedProperty == method, ]
     output_file <- file.path(output_dir, paste0("ANSIS-", method, ".csv"))
     write.csv(method_data, output_file, row.names = TRUE)
-    message("Saved: ", output_file, " (", nrow(method_data), " records)")
+    message("Saved: ", basename(output_file), " (", nrow(method_data), " records)")
   }
   
   # Also save combined file
-  output_csv_all <- file.path(output_dir, "ANSIS_all_lab_measurements.csv")
-  write.csv(all_ph_data, output_csv_all, row.names = TRUE)
+  output_csv_all <- file.path(output_dir, "ANSIS_combined.csv")
+  write.csv(all_data, output_csv_all, row.names = TRUE)
+  
   # Display summary
-  message("\n=== Summary ===")
+  message("\n========================================")
+  message("=== SUMMARY ===")
+  message("========================================")
   message("JSON files processed: ", length(json_files))
-  message("Output directory: ", output_dir)
-  message("Total lab measurement records: ", nrow(all_ph_data))
-  message("CSV files generated: ", length(lab_methods))
+  message("Total records extracted: ", nrow(all_data))
+  message("CSV files generated: ", length(lab_methods) + 1)
   message("\nLab methods found:")
-  print(table(all_ph_data$ObservedProperty))
-  message("\nFirst 10 records:")
-  print(head(all_ph_data, 10))
+  print(table(all_data$ObservedProperty))
 }
