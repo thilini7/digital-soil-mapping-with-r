@@ -4,13 +4,39 @@
 #              TERNSoilDataFederator output. Processes all soil properties.
 # Author: Digital Soil Mapping Project
 # Date: 2026-01-12
-# Updated: 2026-01-13 - Generic script for all soil property data
+# Updated: 2026-01-14 - Fixed path handling, JSON parsing, performance issues
 # ==============================================================================
 
 # Load required libraries
 library(jsonlite)
 library(stringr)
 library(dplyr)
+
+# ==============================================================================
+# Utility: Safe extraction from nested lists
+# ==============================================================================
+
+#' Safely extract a value from a nested list structure
+#' @param x List to extract from
+#' @param ... Keys to traverse
+#' @param default Default value if extraction fails
+#' @return Extracted value or default
+safe_extract <- function(x, ..., default = NULL) {
+  keys <- list(...)
+  tryCatch({
+    for (key in keys) {
+      if (is.null(x)) return(default)
+      if (is.numeric(key)) {
+        if (length(x) < key) return(default)
+        x <- x[[key]]
+      } else {
+        if (!key %in% names(x)) return(default)
+        x <- x[[key]]
+      }
+    }
+    if (is.null(x)) default else x
+  }, error = function(e) default)
+}
 
 # ==============================================================================
 # Helper Functions (adapted from ANSISUtils-main)
@@ -20,11 +46,11 @@ library(dplyr)
 #' @param siteAsList List containing site data
 #' @return Character string with site ID
 getSiteID <- function(siteAsList) {
-  scopeID <- siteAsList$scopedIdentifier[[1]]$value
+  scopeID <- safe_extract(siteAsList, "scopedIdentifier", 1, "value")
   if (is.null(scopeID)) {
-    sid <- siteAsList$id
+    sid <- safe_extract(siteAsList, "id", default = paste0("unknown_", Sys.time()))
   } else {
-    auth <- siteAsList$scopedIdentifier[[1]]$authority
+    auth <- safe_extract(siteAsList, "scopedIdentifier", 1, "authority", default = "unknown")
     sid <- paste0(auth, "+", scopeID)
   }
   return(sid)
@@ -34,155 +60,270 @@ getSiteID <- function(siteAsList) {
 #' @param siteAsList List containing site data
 #' @return List with X (Longitude) and Y (Latitude)
 getSiteLocation <- function(siteAsList) {
-  geom <- siteAsList$geometry
+  geom <- safe_extract(siteAsList, "geometry")
   if (is.null(geom)) {
-    return(list(X = NA, Y = NA))
+    return(list(X = NA_real_, Y = NA_real_))
   }
   
   # Handle different geometry formats
+  srid <- NULL
   if (is.character(geom)) {
     srid <- geom
   } else if (is.list(geom) && !is.null(geom$result)) {
     srid <- geom$result
   } else if (is.list(geom) && length(geom) > 0) {
     srid <- geom[[1]]
-  } else {
-    return(list(X = NA, Y = NA))
+  }
+  
+  if (is.null(srid) || !is.character(srid)) {
+    return(list(X = NA_real_, Y = NA_real_))
   }
   
   # Parse POINT coordinates from WKT format
+
   # Format: "SRID=4283;POINT(143.58154632872 -35.0968873016132)"
+  # Also handles: "POINT(143.58 -35.09)" without SRID prefix
+
   tryCatch({
-    bits <- str_split(srid, "[(]")
-    bits2 <- str_remove(bits[[1]][2], "[)]")
-    bits3 <- str_split(bits2, " ")[[1]]
-    ol <- list()
-    ol$X <- as.numeric(bits3[1])
-    ol$Y <- as.numeric(bits3[2])
-    return(ol)
+    # Check if it looks like WKT POINT
+    if (!grepl("POINT", srid, ignore.case = TRUE)) {
+      return(list(X = NA_real_, Y = NA_real_))
+    }
+    
+    # Extract coordinates between parentheses
+    coords_match <- regmatches(srid, regexec("POINT\\s*\\(\\s*([^)]+)\\s*\\)", srid, ignore.case = TRUE))
+    if (length(coords_match[[1]]) < 2) {
+      return(list(X = NA_real_, Y = NA_real_))
+    }
+    
+    coord_str <- trimws(coords_match[[1]][2])
+    coords <- as.numeric(strsplit(coord_str, "\\s+")[[1]])
+    
+    if (length(coords) >= 2 && !any(is.na(coords[1:2]))) {
+      return(list(X = coords[1], Y = coords[2]))
+    }
+    return(list(X = NA_real_, Y = NA_real_))
   }, error = function(e) {
-    return(list(X = NA, Y = NA))
+    return(list(X = NA_real_, Y = NA_real_))
   })
 }
 
 #' Get sample date from site visit
 #' @param siteAsList List containing site data
+#' @param visit_index Which site visit to use (default 1)
 #' @return Character string with date
-getSampleDate <- function(siteAsList) {
+getSampleDate <- function(siteAsList, visit_index = 1) {
   tryCatch({
-    dt <- siteAsList$siteVisit[[1]]$startedAtTime
-    if (!is.null(dt)) {
+    # Check if siteVisit exists and has entries
+    site_visits <- safe_extract(siteAsList, "siteVisit")
+    if (is.null(site_visits) || length(site_visits) == 0) {
+      return(NA_character_)
+    }
+    
+    # Clamp visit_index to valid range
+    visit_index <- min(visit_index, length(site_visits))
+    dt <- safe_extract(site_visits, visit_index, "startedAtTime")
+    
+    if (!is.null(dt) && is.character(dt) && nzchar(dt)) {
       # Convert from ISO format to dd-mm-yyyy
-      date_obj <- as.Date(str_split(dt, "T")[[1]][1])
+      date_str <- strsplit(dt, "T")[[1]][1]
+      date_obj <- as.Date(date_str)
       return(format(date_obj, "%d-%m-%Y"))
     }
-    return(NA)
+    return(NA_character_)
   }, error = function(e) {
-    return(NA)
+    return(NA_character_)
   })
 }
 
 #' Check if a layer property is a lab measurement
 #' @param layer List containing layer data
 #' @param prop Property name to check
-#' @return Logical TRUE if it's a lab property
+#' @return Logical TRUE if it's a lab property with valid usedProcedure
 isLabProperty <- function(layer, prop) {
   tryCatch({
-    if (length(layer[[prop]][[1]]$usedProcedure) > -1 & 
-        !is.null(layer[[prop]][[1]]$usedProcedure)) {
+    prop_data <- safe_extract(layer, prop)
+    if (is.null(prop_data) || length(prop_data) == 0) {
+      return(FALSE)
+    }
+    
+    # Check first element for usedProcedure
+    used_proc <- safe_extract(prop_data, 1, "usedProcedure")
+    
+    # Must be non-null and non-empty string
+    if (!is.null(used_proc) && is.character(used_proc) && nzchar(used_proc)) {
       return(TRUE)
     }
+    return(FALSE)
   }, error = function(e) {
     return(FALSE)
   })
-  return(FALSE)
+}
+
+#' Extract method code from usedProcedure URI/string
+#' @param procedure_str The raw usedProcedure string (may be URI, prefixed code, etc.)
+#' @return Clean method code (e.g., "4B2")
+extractMethodCode <- function(procedure_str) {
+  if (is.null(procedure_str) || !is.character(procedure_str) || !nzchar(procedure_str)) {
+    return(NA_character_)
+  }
+  
+  # Remove common prefixes
+  code <- procedure_str
+  code <- gsub("^scm:", "", code)
+  code <- gsub("^spmile:", "", code)
+  
+  # If it's a URI, extract the last path segment
+  if (grepl("^https?://", code) || grepl("/", code)) {
+    parts <- strsplit(code, "/")[[1]]
+    code <- tail(parts[parts != ""], 1)
+    if (length(code) == 0) code <- procedure_str
+  }
+  
+  # Remove any remaining prefixes like "method:" or "procedure:"
+  code <- gsub("^(method|procedure|code):", "", code, ignore.case = TRUE)
+  
+  # Extract just the method code pattern (e.g., "4B2", "6A1", "15A1")
+  # Pattern: digits followed by letter(s) optionally followed by more digits
+  method_match <- regmatches(code, regexec("([0-9]+[A-Za-z]+[0-9]*)", code))
+  if (length(method_match[[1]]) >= 2) {
+    return(toupper(method_match[[1]][2]))
+  }
+  
+  # If no standard pattern found, return cleaned string
+  return(trimws(code))
 }
 
 #' Extract lab values from a soil layer
 #' @param layer List containing layer data
 #' @param prop Property name
-#' @param ud Upper depth
-#' @param ld Lower depth
+#' @param ud Upper depth (in metres from ANSIS)
+#' @param ld Lower depth (in metres from ANSIS)
+#' @param depth_unit Target depth unit ("cm" or "m")
 #' @return Data frame with extracted values
-extractLabValues <- function(layer, prop, ud, ld) {
-  results <- data.frame()
+extractLabValues <- function(layer, prop, ud, ld, depth_unit = "m") {
+  results <- list()
   
   tryCatch({
-    prop_data <- layer[[prop]]
+    prop_data <- safe_extract(layer, prop)
     
-    if (is.null(prop_data)) return(results)
+    if (is.null(prop_data) || length(prop_data) == 0) return(data.frame())
+    
+    # Convert depths from metres to cm if needed
+    if (depth_unit == "cm") {
+      ud_out <- if (!is.na(ud)) ud * 100 else NA_real_
+      ld_out <- if (!is.na(ld)) ld * 100 else NA_real_
+    } else {
+      ud_out <- ud
+      ld_out <- ld
+    }
     
     # Handle multiple measurements for the same property
-    for (i in 1:length(prop_data)) {
+    for (i in seq_along(prop_data)) {
       measurement <- prop_data[[i]]
+      if (is.null(measurement)) next
       
-      if (!is.null(measurement$usedProcedure)) {
-        procedure <- str_remove(measurement$usedProcedure, "scm:")
-        procedure <- str_remove(procedure, "spmile:")
-        
-        value <- measurement$result$value
-        unit <- measurement$result$unit
-        
-        if (!is.null(value)) {
-          r <- data.frame(
-            UpperDepth = ud,
-            LowerDepth = ld,
-            PropertyType = "LaboratoryMeasurement",
-            ObservedProperty = procedure,
-            Value = value,
-            Units = ifelse(is.null(unit), NA, str_remove(unit, "unit:")),
-            stringsAsFactors = FALSE
-          )
-          results <- rbind(results, r)
-        }
+      used_proc <- safe_extract(measurement, "usedProcedure")
+      if (is.null(used_proc)) next
+      
+      procedure <- extractMethodCode(used_proc)
+      
+      value <- safe_extract(measurement, "result", "value")
+      unit <- safe_extract(measurement, "result", "unit")
+      
+      if (!is.null(value)) {
+        results[[length(results) + 1]] <- data.frame(
+          UpperDepth = ud_out,
+          LowerDepth = ld_out,
+          DepthUnit = depth_unit,
+          PropertyType = "LaboratoryMeasurement",
+          ObservedProperty = procedure,
+          RawProcedure = used_proc,  # Keep original for debugging
+          Value = as.numeric(value),
+          Units = if (is.null(unit)) NA_character_ else gsub("^unit:", "", unit),
+          stringsAsFactors = FALSE
+        )
       }
     }
   }, error = function(e) {
     # Silent error handling
   })
   
-  return(results)
+  if (length(results) == 0) return(data.frame())
+  bind_rows(results)
 }
 
 #' Parse all soil layers from a site
 #' @param siteAsList List containing site data
+#' @param visit_index Which site visit to process (default 1, use NULL for all)
+#' @param depth_unit Target depth unit ("cm" or "m")
 #' @return Data frame with all layer data
-parseSoilLayers <- function(siteAsList) {
-  allResults <- data.frame()
+parseSoilLayers <- function(siteAsList, visit_index = 1, depth_unit = "m") {
+  all_results <- list()
   
   tryCatch({
-    slsl <- siteAsList[["siteVisit"]][[1]]$soilProfile[[1]]$soilLayer
+    site_visits <- safe_extract(siteAsList, "siteVisit")
     
-    if (is.null(slsl)) return(allResults)
+    if (is.null(site_visits) || length(site_visits) == 0) {
+      return(data.frame())
+    }
     
-    for (i in 1:length(slsl)) {
-      layer <- slsl[[i]]
+    # Determine which visits to process
+    if (is.null(visit_index)) {
+      visit_indices <- seq_along(site_visits)
+    } else {
+      visit_indices <- min(visit_index, length(site_visits))
+    }
+    
+    for (v_idx in visit_indices) {
+      soil_profile <- safe_extract(site_visits, v_idx, "soilProfile")
+      if (is.null(soil_profile) || length(soil_profile) == 0) next
       
-      # Get depth values (convert from meters to appropriate units)
-      ud <- layer$depthUpper$result$value
-      ld <- layer$depthLower$result$value
-      
-      if (is.null(ud)) ud <- NA
-      if (is.null(ld)) ld <- NA
-      
-      # Get all property names
-      propNames <- names(layer)
-      
-      # Filter to lab properties
-      labProps <- c("ph", "electricalConductivity", "organicCarbon", 
-                    "totalOrganicCarbon", "cationExchangeCapacity",
-                    "exchangeableCalcium", "exchangeableMagnesium",
-                    "exchangeablePotassium", "exchangeableSodium",
-                    "exchangeableAluminium", "extractablePhosphorus",
-                    "moistureContent", "bulkDensity", "clay", "silt", "sand",
-                    "totalNitrogen", "dryAggregates", "linearShrinkage",
-                    "soilWaterCharacteristic", "texture")
-      
-      for (prop in propNames) {
-        if (prop %in% labProps || isLabProperty(layer, prop)) {
-          labVals <- extractLabValues(layer, prop, ud, ld)
-          if (nrow(labVals) > 0) {
-            allResults <- rbind(allResults, labVals)
+      # Handle multiple soil profiles if present
+      for (p_idx in seq_along(soil_profile)) {
+        slsl <- safe_extract(soil_profile, p_idx, "soilLayer")
+        if (is.null(slsl) || length(slsl) == 0) next
+        
+        for (i in seq_along(slsl)) {
+          layer <- slsl[[i]]
+          if (is.null(layer)) next
+          
+          # Get depth values (ANSIS stores in metres)
+          ud <- safe_extract(layer, "depthUpper", "result", "value")
+          ld <- safe_extract(layer, "depthLower", "result", "value")
+          
+          if (is.null(ud)) ud <- NA_real_
+          if (is.null(ld)) ld <- NA_real_
+          
+          # Convert to numeric
+          ud <- as.numeric(ud)
+          ld <- as.numeric(ld)
+          
+          # Get all property names in this layer
+          propNames <- names(layer)
+          if (is.null(propNames)) next
+          
+          # Known lab properties (case-sensitive as per ANSIS schema)
+          labProps <- c("ph", "electricalConductivity", "organicCarbon", 
+                        "totalOrganicCarbon", "cationExchangeCapacity",
+                        "exchangeableCalcium", "exchangeableMagnesium",
+                        "exchangeablePotassium", "exchangeableSodium",
+                        "exchangeableAluminium", "extractablePhosphorus",
+                        "moistureContent", "bulkDensity", "clay", "silt", "sand",
+                        "totalNitrogen", "dryAggregates", "linearShrinkage",
+                        "soilWaterCharacteristic", "texture", "coarseFragments",
+                        "fieldTexture", "pH", "EC")
+          
+          for (prop in propNames) {
+            if (prop %in% labProps || isLabProperty(layer, prop)) {
+              labVals <- extractLabValues(layer, prop, ud, ld, depth_unit)
+              if (nrow(labVals) > 0) {
+                labVals$VisitIndex <- v_idx
+                labVals$ProfileIndex <- p_idx
+                labVals$LayerIndex <- i
+                all_results[[length(all_results) + 1]] <- labVals
+              }
+            }
           }
         }
       }
@@ -191,7 +332,8 @@ parseSoilLayers <- function(siteAsList) {
     message(paste("Error parsing layers:", e$message))
   })
   
-  return(allResults)
+  if (length(all_results) == 0) return(data.frame())
+  bind_rows(all_results)
 }
 
 # ==============================================================================
@@ -202,48 +344,49 @@ parseSoilLayers <- function(siteAsList) {
 #' @param json_file Path to the input JSON file
 #' @param output_file Path for the output CSV file
 #' @param observed_property Optional: filter to specific property code (e.g., "4B2" for pH)
+#' @param depth_unit Target depth unit ("cm" or "m", default "m")
 #' @return Data frame with converted data
 convertANSIStoTERNFormat <- function(json_file, output_file = NULL, 
-                                      observed_property = NULL) {
+                                      observed_property = NULL,
+                                      depth_unit = "m") {
   
-  message("Reading ANSIS JSON file...")
+  message("Reading ANSIS JSON file: ", json_file)
+  
+  # Validate file exists
+  if (!file.exists(json_file)) {
+    stop("JSON file not found: ", json_file)
+  }
   
   # Read JSON file
   json_data <- fromJSON(json_file, simplifyDataFrame = FALSE)
   
-  # Initialize output data frame matching TERN format
-  output_df <- data.frame(
-    DataStore = character(),
-    Dataset = character(),
-    Provider = character(),
-    Observation_ID = character(),
-    SampleID = character(),
-    SampleDate = character(),
-    Longitude = numeric(),
-    Latitude = numeric(),
-    UpperDepth = numeric(),
-    LowerDepth = numeric(),
-    PropertyType = character(),
-    ObservedProperty = character(),
-    Value = numeric(),
-    Units = character(),
-    QualCollection = character(),
-    QualSpatialAggregation = character(),
-    QualManagement = character(),
-    QualSpatialAccuracy = character(),
-    Location_ID = character(),
-    Layer_ID = character(),
-    ExtractTime = character(),
-    stringsAsFactors = FALSE
-  )
+  # Get number of sites - handle different JSON structures
+  sites_data <- safe_extract(json_data, "data")
+  if (is.null(sites_data) || length(sites_data) == 0) {
+    # Try alternative structure (array at root)
+    if (is.list(json_data) && length(json_data) > 0 && is.null(names(json_data))) {
+      sites_data <- json_data
+    } else {
+      sites_data <- list()
+    }
+  }
+  nsites <- length(sites_data)
   
-  # Get number of sites
-  nsites <- length(json_data$data)
+  if (nsites == 0) {
+    message("Warning: No sites found in JSON file")
+    return(data.frame())
+  }
+  
   message(paste("Processing", nsites, "sites..."))
   
+  # Collect all rows in a list (much faster than rbind in loop)
+  all_rows <- list()
+  row_counter <- 0
+  
   # Process each site
-  for (k in 1:nsites) {
-    site <- json_data$data[[k]]
+  for (k in seq_len(nsites)) {
+    site <- sites_data[[k]]
+    if (is.null(site)) next
     
     # Get site info
     siteID <- getSiteID(site)
@@ -251,66 +394,84 @@ convertANSIStoTERNFormat <- function(json_file, output_file = NULL,
     sampleDate <- getSampleDate(site)
     
     # Parse soil layers for lab values
-    layerData <- parseSoilLayers(site)
+    layerData <- parseSoilLayers(site, depth_unit = depth_unit)
     
     if (nrow(layerData) > 0) {
-      # Create layer IDs
-      unique_depths <- unique(layerData[, c("UpperDepth", "LowerDepth")])
-      unique_depths <- unique_depths[order(unique_depths$UpperDepth), ]
+      # Create unique sample ID per site
+      sample_id <- paste0("S", k)
       
-      for (i in 1:nrow(layerData)) {
+      for (i in seq_len(nrow(layerData))) {
         row <- layerData[i, ]
+        row_counter <- row_counter + 1
         
-        # Find layer ID based on depth order
-        layer_idx <- which(unique_depths$UpperDepth == row$UpperDepth & 
-                             unique_depths$LowerDepth == row$LowerDepth)
-        if (length(layer_idx) == 0) layer_idx <- i
+        # Create unique observation ID
+        obs_id <- paste0(siteID, "_", 
+                         row$VisitIndex, "_",
+                         row$ProfileIndex, "_",
+                         row$LayerIndex, "_",
+                         row$ObservedProperty, "_",
+                         row_counter)
         
-        new_row <- data.frame(
+        # Create unique layer ID
+        layer_id <- paste0("V", row$VisitIndex, 
+                           "_P", row$ProfileIndex,
+                           "_L", row$LayerIndex)
+        
+        all_rows[[row_counter]] <- data.frame(
           DataStore = "ANSIS",
           Dataset = "ANSIS_Federator",
           Provider = "ANSIS",
-          Observation_ID = NA,
-          SampleID = "1",
+          Observation_ID = obs_id,
+          SampleID = sample_id,
           SampleDate = sampleDate,
           Longitude = location$X,
           Latitude = location$Y,
           UpperDepth = row$UpperDepth,
           LowerDepth = row$LowerDepth,
+          DepthUnit = row$DepthUnit,
           PropertyType = row$PropertyType,
           ObservedProperty = row$ObservedProperty,
+          RawProcedure = row$RawProcedure,
           Value = row$Value,
           Units = row$Units,
-          QualCollection = NA,
-          QualSpatialAggregation = NA,
-          QualManagement = NA,
-          QualSpatialAccuracy = NA,
+          QualCollection = NA_character_,
+          QualSpatialAggregation = NA_character_,
+          QualManagement = NA_character_,
+          QualSpatialAccuracy = NA_character_,
           Location_ID = siteID,
-          Layer_ID = as.character(layer_idx),
+          Layer_ID = layer_id,
           ExtractTime = format(Sys.time(), "%Y-%m-%dT%H:%M:%S"),
           stringsAsFactors = FALSE
         )
-        
-        output_df <- rbind(output_df, new_row)
       }
     }
     
     # Progress indicator
-    if (k %% 10 == 0 || k == nsites) {
+    if (k %% 50 == 0 || k == nsites) {
       message(paste("Processed", k, "of", nsites, "sites"))
     }
   }
   
+  # Combine all rows at once (much faster than iterative rbind)
+  if (length(all_rows) == 0) {
+    message("Warning: No lab measurements found in any sites")
+    return(data.frame())
+  }
+  
+  output_df <- bind_rows(all_rows)
+  
   # Filter by observed property if specified
   if (!is.null(observed_property)) {
-    output_df <- output_df[output_df$ObservedProperty == observed_property, ]
+    # Support partial matching for flexibility
+    matches <- grepl(observed_property, output_df$ObservedProperty, ignore.case = TRUE)
+    output_df <- output_df[matches, ]
     message(paste("Filtered to property:", observed_property, 
                   "- Rows:", nrow(output_df)))
   }
   
-  # Save to CSV if output file specified
+  # Save to CSV if output file specified (no row names)
   if (!is.null(output_file)) {
-    write.csv(output_df, output_file, row.names = TRUE)
+    write.csv(output_df, output_file, row.names = FALSE)
     message(paste("Data saved to:", output_file))
   }
   
@@ -331,16 +492,17 @@ extractPhData <- function(json_file, output_file = NULL, method = NULL) {
   
   all_data <- convertANSIStoTERNFormat(json_file)
   
-  # Filter for pH measurements
+  # Filter for pH measurements (use partial matching for flexibility)
   ph_methods <- c("4A1", "4B1", "4B2", "4B3")
-  ph_data <- all_data[all_data$ObservedProperty %in% ph_methods, ]
+  ph_pattern <- paste(ph_methods, collapse = "|")
+  ph_data <- all_data[grepl(ph_pattern, all_data$ObservedProperty, ignore.case = TRUE), ]
   
   if (!is.null(method)) {
-    ph_data <- ph_data[ph_data$ObservedProperty == method, ]
+    ph_data <- ph_data[grepl(method, ph_data$ObservedProperty, ignore.case = TRUE), ]
   }
   
   if (!is.null(output_file)) {
-    write.csv(ph_data, output_file, row.names = TRUE)
+    write.csv(ph_data, output_file, row.names = FALSE)
     message(paste("pH data saved to:", output_file))
   }
   
@@ -355,31 +517,56 @@ extractPhData <- function(json_file, output_file = NULL, method = NULL) {
 # Main Execution - Process Soil Property Data
 # ==============================================================================
 
+#' Determine project root directory robustly
+#' @return Absolute path to project root
+getProjectRoot <- function() {
+  # Method 1: Try rstudioapi if available and running in RStudio
+  if (requireNamespace("rstudioapi", quietly = TRUE)) {
+    tryCatch({
+      if (rstudioapi::isAvailable()) {
+        script_path <- rstudioapi::getSourceEditorContext()$path
+        if (!is.null(script_path) && nzchar(script_path)) {
+          script_dir <- dirname(script_path)
+          # Check if we're in R/ subdirectory
+          if (grepl("[/\\\\]R$", script_dir)) {
+            return(normalizePath(dirname(script_dir), winslash = "/"))
+          }
+        }
+      }
+    }, error = function(e) NULL)
+  }
+  
+  # Method 2: Check common project structure markers from current dir
+  markers <- c("Data/data_in/ansis_data", "R/0_convert_ansis_json_to_csv.R")
+  
+  # Check current directory
+  if (all(sapply(markers, function(m) file.exists(file.path(getwd(), m))))) {
+    return(normalizePath(getwd(), winslash = "/"))
+  }
+  
+  # Check parent directory (if running from R/)
+  parent <- dirname(getwd())
+  if (all(sapply(markers, function(m) file.exists(file.path(parent, m))))) {
+    return(normalizePath(parent, winslash = "/"))
+  }
+  
+  # Method 3: Use here package if available
+  if (requireNamespace("here", quietly = TRUE)) {
+    tryCatch({
+      return(normalizePath(here::here(), winslash = "/"))
+    }, error = function(e) NULL)
+  }
+  
+  # Fallback: return current directory with warning
+  warning("Could not reliably determine project root. Using current directory.")
+  return(normalizePath(getwd(), winslash = "/"))
+}
+
 # Only run if this script is being executed directly (not sourced)
 if (sys.nframe() == 0 || !exists("SOURCED_ONLY")) {
   
-  # Get the script directory and set working directory to project root
-  script_dir <- tryCatch({
-    dirname(rstudioapi::getSourceEditorContext()$path)
-  }, error = function(e) {
-    "."
-  })
-  
-  # Set working directory to project root
-  project_root <- tryCatch({
-    if (grepl("/R$", script_dir)) {
-      dirname(script_dir)
-    } else if (file.exists("Data/data_in/ansis_data")) {
-      getwd()
-    } else if (file.exists("../Data/data_in/ansis_data")) {
-      normalizePath("..")
-    } else {
-      getwd()
-    }
-  }, error = function(e) {
-    getwd()
-  })
-  
+  # Determine and set project root
+  project_root <- getProjectRoot()
   setwd(project_root)
   message("Working directory: ", getwd())
   
@@ -388,29 +575,51 @@ if (sys.nframe() == 0 || !exists("SOURCED_ONLY")) {
   # ============================================================================
   
   # Input: Directory containing JSON files for the property
-  json_dir <- "Data/data_in/ansis_data/ansis_oc_sites"
+  json_dir <- "/Data/data_in/ansis_data/New Baseline (1990-2020)/Moisture Content"
   
   # Output: Directory where CSV files will be saved
-  output_dir <- "Data/data_out/ansis_lab_measurements/oc"
+  output_dir <- "Data/data_out/ansis_lab_measurements/Moisture Content"
   
   # ============================================================================
   
-  # Find JSON files
-  json_files <- list.files(json_dir, pattern = "\\.json$", full.names = TRUE)
-  
-  if (length(json_files) == 0) {
-    stop("No JSON files found in: ", json_dir)
-  }
+  # Convert to absolute path and validate
+  json_dir_abs <- normalizePath(file.path(project_root, json_dir), 
+                                 winslash = "/", mustWork = FALSE)
   
   message("\n========================================")
   message("ANSIS JSON to CSV Conversion")
   message("========================================")
   message("Input directory: ", json_dir)
+  message("Absolute path: ", json_dir_abs)
+  
+  # Check if directory exists
+  if (!dir.exists(json_dir_abs)) {
+    stop("Input directory does not exist: ", json_dir_abs, 
+         "\nPlease check the path and ensure files are in place.")
+  }
+  
+  # Find JSON files (case-insensitive for cross-platform support)
+  json_files <- list.files(json_dir_abs, 
+                           pattern = "\\.[jJ][sS][oO][nN]$", 
+                           full.names = TRUE,
+                           recursive = TRUE)  # Also check subdirectories
+  
+  if (length(json_files) == 0) {
+    # List what IS in the directory for debugging
+    all_files <- list.files(json_dir_abs, full.names = FALSE, recursive = TRUE)
+    message("Files found in directory: ", 
+            if (length(all_files) > 0) paste(head(all_files, 10), collapse = ", ") else "(empty)")
+    stop("No JSON files found in: ", json_dir_abs)
+  }
+  
   message("Output directory: ", output_dir)
   message("JSON files found: ", length(json_files))
+  for (f in json_files) {
+    message("  - ", basename(f))
+  }
   
-  # Process all JSON files
-  all_data <- data.frame()
+  # Process all JSON files - collect in list for performance
+  all_data_list <- list()
   
   for (input_json in json_files) {
     message("\nProcessing: ", basename(input_json))
@@ -418,41 +627,61 @@ if (sys.nframe() == 0 || !exists("SOURCED_ONLY")) {
     # Convert all properties from JSON
     json_data <- convertANSIStoTERNFormat(json_file = input_json)
     
-    # Include all LaboratoryMeasurement records
-    lab_data <- json_data[json_data$PropertyType == "LaboratoryMeasurement", ]
+    if (nrow(json_data) > 0) {
+      # Include all LaboratoryMeasurement records
+      lab_data <- json_data[json_data$PropertyType == "LaboratoryMeasurement", ]
+      if (nrow(lab_data) > 0) {
+        all_data_list[[length(all_data_list) + 1]] <- lab_data
+      }
+    }
+  }
+  
+  # Combine all data at once (faster than iterative rbind)
+  all_data <- if (length(all_data_list) > 0) bind_rows(all_data_list) else data.frame()
+  
+  if (nrow(all_data) == 0) {
+    message("\nWarning: No laboratory measurements extracted from any files.")
+    message("This may indicate:")
+    message("  - JSON structure doesn't match expected ANSIS format")
+    message("  - No lab measurements in the data")
+    message("  - Property names don't match expected values")
+  } else {
+    # Create output directory if not exists
+    output_dir_abs <- normalizePath(file.path(project_root, output_dir), 
+                                     winslash = "/", mustWork = FALSE)
+    if (!dir.exists(output_dir_abs)) {
+      dir.create(output_dir_abs, recursive = TRUE)
+    }
     
-    all_data <- rbind(all_data, lab_data)
+    # Get unique lab methods
+    lab_methods <- unique(all_data$ObservedProperty)
+    lab_methods <- lab_methods[!is.na(lab_methods)]
+    
+    message("\n=== Generating CSV files by method ===")
+    
+    # Save separate CSV for each lab method (no row names)
+    for (method in lab_methods) {
+      method_data <- all_data[all_data$ObservedProperty == method, ]
+      # Clean method name for filename
+      safe_method <- gsub("[^A-Za-z0-9_-]", "_", method)
+      output_file <- file.path(output_dir_abs, paste0("ANSIS-", safe_method, ".csv"))
+      write.csv(method_data, output_file, row.names = FALSE)
+      message("Saved: ", basename(output_file), " (", nrow(method_data), " records)")
+    }
+    
+    # Also save combined file
+    output_csv_all <- file.path(output_dir_abs, "ANSIS_combined.csv")
+    write.csv(all_data, output_csv_all, row.names = FALSE)
+    
+    # Display summary
+    message("\n========================================")
+    message("=== SUMMARY ===")
+    message("========================================")
+    message("JSON files processed: ", length(json_files))
+    message("Total records extracted: ", nrow(all_data))
+    message("CSV files generated: ", length(lab_methods) + 1)
+    message("Output directory: ", output_dir_abs)
+    message("\nLab methods found:")
+    print(table(all_data$ObservedProperty, useNA = "ifany"))
   }
-  
-  # Create output directory if not exists
-  if (!dir.exists(output_dir)) {
-    dir.create(output_dir, recursive = TRUE)
-  }
-  
-  # Get unique lab methods
-  lab_methods <- unique(all_data$ObservedProperty)
-  
-  message("\n=== Generating CSV files by method ===")
-  
-  # Save separate CSV for each lab method
-  for (method in lab_methods) {
-    method_data <- all_data[all_data$ObservedProperty == method, ]
-    output_file <- file.path(output_dir, paste0("ANSIS-", method, ".csv"))
-    write.csv(method_data, output_file, row.names = TRUE)
-    message("Saved: ", basename(output_file), " (", nrow(method_data), " records)")
-  }
-  
-  # Also save combined file
-  output_csv_all <- file.path(output_dir, "ANSIS_combined.csv")
-  write.csv(all_data, output_csv_all, row.names = TRUE)
-  
-  # Display summary
-  message("\n========================================")
-  message("=== SUMMARY ===")
-  message("========================================")
-  message("JSON files processed: ", length(json_files))
-  message("Total records extracted: ", nrow(all_data))
-  message("CSV files generated: ", length(lab_methods) + 1)
-  message("\nLab methods found:")
-  print(table(all_data$ObservedProperty))
 }
