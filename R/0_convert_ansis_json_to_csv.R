@@ -520,50 +520,140 @@ extractPhData <- function(json_file, output_file = NULL, method = NULL) {
 #' Determine project root directory robustly
 #' @return Absolute path to project root
 getProjectRoot <- function() {
+  # Helper to normalize paths consistently across platforms
+  normPath <- function(p) {
+    if (is.null(p) || !nzchar(p)) return(NULL)
+    tryCatch({
+      # Convert backslashes to forward slashes first (Windows compatibility)
+      p <- gsub("\\\\", "/", p)
+      # Remove trailing slashes
+      p <- sub("/$", "", p)
+      # Use normalizePath if path exists, otherwise return cleaned path
+      if (file.exists(p)) {
+        normalizePath(p, winslash = "/", mustWork = FALSE)
+      } else {
+        p
+      }
+    }, error = function(e) p)
+  }
+  
+  # Helper to check if directory looks like project root
+  isProjectRoot <- function(dir) {
+    if (is.null(dir) || !nzchar(dir) || !dir.exists(dir)) return(FALSE)
+    markers <- c("Data/data_in/ansis_data", "R/0_convert_ansis_json_to_csv.R")
+    all(sapply(markers, function(m) {
+      test_path <- file.path(dir, m)
+      # Also try with backslash conversion for Windows
+      file.exists(test_path) || file.exists(gsub("/", "\\\\", test_path))
+    }))
+  }
+  
   # Method 1: Try rstudioapi if available and running in RStudio
   if (requireNamespace("rstudioapi", quietly = TRUE)) {
     tryCatch({
       if (rstudioapi::isAvailable()) {
         script_path <- rstudioapi::getSourceEditorContext()$path
         if (!is.null(script_path) && nzchar(script_path)) {
+          script_path <- normPath(script_path)
           script_dir <- dirname(script_path)
-          # Check if we're in R/ subdirectory
-          if (grepl("[/\\\\]R$", script_dir)) {
-            return(normalizePath(dirname(script_dir), winslash = "/"))
+          
+          # Check if we're in R/ subdirectory (handle both / and \)
+          if (grepl("[/\\\\]R$", script_dir, ignore.case = FALSE)) {
+            candidate <- dirname(script_dir)
+            candidate <- normPath(candidate)
+            if (isProjectRoot(candidate)) {
+              return(candidate)
+            }
+          }
+          
+          # Maybe script is directly in project root
+          if (isProjectRoot(script_dir)) {
+            return(normPath(script_dir))
           }
         }
       }
     }, error = function(e) NULL)
   }
   
-  # Method 2: Check common project structure markers from current dir
-  markers <- c("Data/data_in/ansis_data", "R/0_convert_ansis_json_to_csv.R")
+  # Method 2: Check current working directory and parents
+  cwd <- normPath(getwd())
   
   # Check current directory
-  if (all(sapply(markers, function(m) file.exists(file.path(getwd(), m))))) {
-    return(normalizePath(getwd(), winslash = "/"))
+
+  if (isProjectRoot(cwd)) {
+    return(cwd)
   }
   
-  # Check parent directory (if running from R/)
-  parent <- dirname(getwd())
-  if (all(sapply(markers, function(m) file.exists(file.path(parent, m))))) {
-    return(normalizePath(parent, winslash = "/"))
+  # Check parent directory (if running from R/ subdirectory)
+  parent <- dirname(cwd)
+  if (isProjectRoot(parent)) {
+    return(normPath(parent))
+  }
+  
+  # Check grandparent (in case of deeper nesting)
+  grandparent <- dirname(parent)
+  if (isProjectRoot(grandparent)) {
+    return(normPath(grandparent))
   }
   
   # Method 3: Use here package if available
   if (requireNamespace("here", quietly = TRUE)) {
     tryCatch({
-      return(normalizePath(here::here(), winslash = "/"))
+      here_root <- normPath(here::here())
+      if (isProjectRoot(here_root)) {
+        return(here_root)
+      }
     }, error = function(e) NULL)
   }
   
+  # Method 4: Try to find project root by walking up directory tree
+  search_dir <- cwd
+  for (i in 1:10) {  # Limit search depth
+    if (isProjectRoot(search_dir)) {
+      return(normPath(search_dir))
+    }
+    parent_dir <- dirname(search_dir)
+    # Stop if we've reached filesystem root
+    if (parent_dir == search_dir) break
+    search_dir <- parent_dir
+  }
+  
   # Fallback: return current directory with warning
-  warning("Could not reliably determine project root. Using current directory.")
-  return(normalizePath(getwd(), winslash = "/"))
+  warning("Could not reliably determine project root. Using current directory: ", cwd)
+  return(cwd)
 }
 
 # Only run if this script is being executed directly (not sourced)
 if (sys.nframe() == 0 || !exists("SOURCED_ONLY")) {
+  
+  # Helper function to check if path is absolute
+  isAbsolutePath <- function(path) {
+    if (is.null(path) || !nzchar(path)) return(FALSE)
+    # Windows: starts with drive letter (C:/, D:\, etc.)
+    # Unix/Mac: starts with /
+    grepl("^[A-Za-z]:[/\\\\]", path) || grepl("^/", path)
+  }
+  
+  # Helper function to resolve path (handle both absolute and relative)
+  resolvePath <- function(path, base_dir) {
+    if (is.null(path) || !nzchar(path)) return(NULL)
+    # Normalize slashes
+    path <- gsub("\\\\", "/", path)
+    # Remove leading slash if it's not a Unix absolute path and not a drive letter
+    # This handles cases like "/Data/..." which should be relative
+    if (grepl("^/[^/]", path) && !grepl("^/[A-Za-z]:", path)) {
+      # Check if it looks like a relative path with accidental leading slash
+      if (!dir.exists(path)) {
+        path <- sub("^/", "", path)
+      }
+    }
+    # If already absolute, use as-is
+    if (isAbsolutePath(path)) {
+      return(normalizePath(path, winslash = "/", mustWork = FALSE))
+    }
+    # Otherwise, combine with base directory
+    return(normalizePath(file.path(base_dir, path), winslash = "/", mustWork = FALSE))
+  }
   
   # Determine and set project root
   project_root <- getProjectRoot()
@@ -572,10 +662,13 @@ if (sys.nframe() == 0 || !exists("SOURCED_ONLY")) {
   
   # ============================================================================
   # CONFIGURATION - Change these paths for each property
+  # Paths can be:
+  #   - Absolute: "D:/ANSIS_DATA/..." or "/home/user/data/..."
+  #   - Relative to project root: "Data/data_in/..." or "./Data/..."
   # ============================================================================
   
   # Input: Directory containing JSON files for the property
-  json_dir <- "/Data/data_in/ansis_data/New Baseline (1990-2020)/Moisture Content"
+  json_dir <- "Data/data_in/ansis_data/New Baseline (1990-2020)/Moisture Content"
   
   # Output: Directory where CSV files will be saved
   output_dir <- "Data/data_out/ansis_lab_measurements/Moisture Content"
@@ -583,14 +676,13 @@ if (sys.nframe() == 0 || !exists("SOURCED_ONLY")) {
   # ============================================================================
   
   # Convert to absolute path and validate
-  json_dir_abs <- normalizePath(file.path(project_root, json_dir), 
-                                 winslash = "/", mustWork = FALSE)
+  json_dir_abs <- resolvePath(json_dir, project_root)
   
   message("\n========================================")
   message("ANSIS JSON to CSV Conversion")
   message("========================================")
-  message("Input directory: ", json_dir)
-  message("Absolute path: ", json_dir_abs)
+  message("Input directory (configured): ", json_dir)
+  message("Input directory (resolved): ", json_dir_abs)
   
   # Check if directory exists
   if (!dir.exists(json_dir_abs)) {
@@ -647,8 +739,7 @@ if (sys.nframe() == 0 || !exists("SOURCED_ONLY")) {
     message("  - Property names don't match expected values")
   } else {
     # Create output directory if not exists
-    output_dir_abs <- normalizePath(file.path(project_root, output_dir), 
-                                     winslash = "/", mustWork = FALSE)
+    output_dir_abs <- resolvePath(output_dir, project_root)
     if (!dir.exists(output_dir_abs)) {
       dir.create(output_dir_abs, recursive = TRUE)
     }
