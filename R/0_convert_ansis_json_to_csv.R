@@ -668,10 +668,10 @@ if (sys.nframe() == 0 || !exists("SOURCED_ONLY")) {
   # ============================================================================
   
   # Input: Directory containing JSON files for the property
-  json_dir <- "Data/data_in/ansis_data/New Baseline (1990-2020)/Moisture Content"
+  json_dir <- "Data/data_in/ansis_data/New Baseline (1990-2020)/All Sites"
   
   # Output: Directory where CSV files will be saved
-  output_dir <- "Data/data_out/ansis_lab_measurements/Moisture Content"
+  output_dir <- "Data/data_out/ansis_lab_measurements/All Sites"
   
   # ============================================================================
   

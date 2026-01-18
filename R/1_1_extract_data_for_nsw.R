@@ -11,22 +11,29 @@ library(lubridate)
 library(nswgeo)
 
 # ---- Set working directory ----
-setwd("/Users/neo/Development/Data-Science/data-science")
+setwd("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r")
 
 # Platform-independent paths
-data_in_prefix <- file.path("Data", "data_in", "carbon")
-data_output_filter_prefix <- file.path("Data", "data_out", "carbon", "Carbon_filter_NSW")
-data_output_splined_prefix <- file.path("Data", "data_out", "carbon", "Carbon_splined_NSW")
+data_in_dir <- file.path("Data", "data_out", "lab_method_extracts")
+data_output_filter_prefix <- file.path("Data", "data_out", "splined_data", "carbon", "Carbon_filter_NSW")
+data_output_splined_prefix <- file.path("Data", "data_out", "splined_data", "carbon", "Carbon_splined_NSW")
+
+# Ensure output directories exist
+dir.create(dirname(data_output_filter_prefix), recursive = TRUE, showWarnings = FALSE)
+dir.create(dirname(data_output_splined_prefix), recursive = TRUE, showWarnings = FALSE)
 
 # ---- Load helper functions ----
-source("R-scripts/1_2_extract_data_for_func.R")
+source("R/1_2_extract_data_for_func.R")
 
 # ---- Load and combine data ----
-files <- list.files(path = data_in_prefix, full.names = TRUE)
+files <- list.files(path = data_in_dir, pattern = "Organic_Carbon.*\\.csv$", full.names = TRUE)
+if (length(files) == 0) {
+  stop("No Organic_Carbon CSV files found in: ", data_in_dir)
+}
 dfs <- lapply(files, read.csv)
 
 # Required columns for analysis
-required_cols <- c("Latitude", "Longitude", "UpperDepth", "LowerDepth", "Value")
+required_cols <- c("Latitude", "Longitude", "UpperDepth", "LowerDepth", "Value", "LDI")
 
 dfs <- lapply(dfs, function(x) {
   # Create Location_ID if it doesn't exist (use alternative identifier columns)
@@ -51,7 +58,7 @@ dfs <- lapply(dfs, function(x) {
   x$Location_ID <- as.character(x$Location_ID)
   if ("SampleDate" %in% names(x)) x$SampleDate <- as.character(x$SampleDate)
   
-  num_cols <- c("UpperDepth", "LowerDepth", "Value", "Latitude", "Longitude")
+  num_cols <- c("UpperDepth", "LowerDepth", "Value", "Latitude", "Longitude", "LDI")
   for (col in num_cols) {
     if (col %in% names(x)) {
       x[[col]] <- suppressWarnings(as.numeric(as.character(x[[col]])))
@@ -66,13 +73,17 @@ dfs <- lapply(dfs, function(x) {
 # Remove NULL entries (files that were skipped)
 dfs <- Filter(Negate(is.null), dfs)
 
+if (length(dfs) == 0) {
+  stop("No valid files found with required columns: ", paste(required_cols, collapse = ", "))
+}
+
 df <- dplyr::bind_rows(dfs)
 if ("X" %in% names(df)) df$X <- NULL
 
 # ---- Basic cleaning ----
 cat("🔍 Checking for NAs...\n")
 rows_before <- nrow(df)
-df <- df[complete.cases(df[, c("Latitude", "Longitude", "UpperDepth", "LowerDepth", "Value")]), ]
+df <- df[complete.cases(df[, c("Latitude", "Longitude", "UpperDepth", "LowerDepth", "Value", "LDI")]), ]
 cat("Removed", rows_before - nrow(df), "rows with NA in key columns.\n")
 
 # ---- Convert depth units (m -> cm) ----
@@ -124,7 +135,7 @@ if ("SampleDate" %in% names(df)) {
 
 # ---- Save filtered data ----
 if (nrow(df) > 0) {
-  data_output_filter_file <- paste0(data_output_filter_prefix, "_1970_2000_Data.csv")
+  data_output_filter_file <- paste0(data_output_filter_prefix, "_1991_2020_Data.csv")
   write.csv(df, data_output_filter_file, row.names = FALSE)
   cat("✅ Filtering complete! Saved as:", data_output_filter_file, "\n")
 } else {
@@ -146,24 +157,24 @@ data_splined <- eaFit$harmonised %>%
   mutate(across(where(is.numeric), ~na_if(., -9999))) %>%
   dplyr::select(-`soil depth`)
 
-# ---- Merge coords ----
+# ---- Merge coords and LDI ----
 df_coords <- df %>%
   group_by(Location_ID) %>%
-  summarise(across(c(Longitude, Latitude), mean), .groups = "drop")
+  summarise(across(c(Longitude, Latitude, LDI), mean, na.rm = TRUE), .groups = "drop")
 
 data_splined$id <- as.character(data_splined$id)
 df_coords$Location_ID <- as.character(df_coords$Location_ID)
 data_splined <- merge(data_splined, df_coords, by.x = "id", by.y = "Location_ID")
 
 # ---- Save splined data ----
-data_output_splined_file <- paste0(data_output_splined_prefix, "_1970_2000_Data.csv")
+data_output_splined_file <- paste0(data_output_splined_prefix, "_1991_2020_Data.csv")
 write.csv(data_splined, data_output_splined_file, row.names = FALSE)
 cat("✅ Splined data saved as:", data_output_splined_file, "\n")
 
 # ---- Optional clean NA ----
 cols_to_clean <- names(data_splined)[grepl("^X", names(data_splined))]
 if (length(cols_to_clean) > 0) {
-  cleaned_file <- paste0(data_output_splined_prefix, "_cleaned_1970_2000_Data.csv")
+  cleaned_file <- paste0(data_output_splined_prefix, "_cleaned_1991_2020_Data.csv")
   data_splined <- na_fill(data_splined, cutoffs = 100, colnames = cols_to_clean)
   write.csv(data_splined, cleaned_file, row.names = FALSE)
   cat("✅ Cleaned splined data saved as:", cleaned_file, "\n")

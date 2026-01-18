@@ -7,12 +7,9 @@
 # Common Lab Methods (ObservedProperty codes):
 # pH:
 #   - 4A1: pH in water (1:5 soil:water)
-#   - 4B1: pH in CaCl2 (1:5 soil:0.01M CaCl2)
-#   - 4B2: pH in CaCl2 (alternative)
 #
 # Organic Carbon:
 #   - 6A1: Organic carbon - Walkley-Black
-#   - 6B2: Organic carbon - Dumas combustion
 #
 # Electrical Conductivity:
 #   - 3A1: EC (1:5 soil:water)
@@ -35,14 +32,16 @@
 #   - 2B1: Particle size - clay content
 #
 # Bulk Density:
-#   - 503.01, 504.02: Bulk density methods
+#   - 503.01, 503.03: Bulk density methods
 #
 # Nitrogen:
-#   - 7C2: Total nitrogen
+#   - 7C2b_NH4_N: Ammonium N - 2 M KCl
 #
 # Phosphorus:
-#   - 9B2: Available P - Colwell
 #   - 9E1: Available P - Olsen
+# 
+# Moisture content:
+#   - 2B1: As received moisture content
 # =============================================================================
 
 # --- Install required packages (only if not already installed) ---
@@ -81,15 +80,15 @@ lab_method_groups <- list(
   
   # pH measurements
   pH = list(
-    methods = c("4A1", "4B1", "4B2", "4B4", "4G1"),
-    description = "pH measurements (water and CaCl2)",
+    methods = c("4A1"),
+    description = "pH measurements (water)",
     output_name = "pH"
   ),
   
   # Organic Carbon
   OC = list(
-    methods = c("6A1", "6B2", "6B3", "6B4"),
-    description = "Organic Carbon (Walkley-Black, Dumas)",
+    methods = c("6A1"),
+    description = "Organic Carbon (Walkley-Black)",
     output_name = "Organic_Carbon"
   ),
   
@@ -132,38 +131,31 @@ lab_method_groups <- list(
     output_name = "Exchangeable_K"
   ),
   
-  # Clay Content
-  Clay = list(
-    methods = c("2B1"),
-    description = "Clay Content (Particle Size)",
-    output_name = "Clay"
-  ),
-  
   # Bulk Density
   BD = list(
-    methods = c("503.01", "504.02", "515.01", "516.01"),
+    methods = c("503.01", "503.03"),
     description = "Bulk Density",
     output_name = "Bulk_Density"
   ),
   
-  # Total Nitrogen
+  # Nitrogen
   TN = list(
-    methods = c("7C2"),
-    description = "Total Nitrogen",
-    output_name = "Total_Nitrogen"
+    methods = c("7C2b_NH4_N"),
+    description = "Ammonium N (2 M KCl)",
+    output_name = "Nitrogen"
   ),
   
   # Available Phosphorus
   P = list(
-    methods = c("9B2", "9E1"),
-    description = "Available Phosphorus (Colwell, Olsen)",
+    methods = c("9E1"),
+    description = "Available Phosphorus (Olsen)",
     output_name = "Phosphorus"
   ),
   
-  # Moisture Content
+  # Moisture Content (As received)
   Moisture = list(
-    methods = c("12A1", "12C2"),
-    description = "Moisture Content",
+    methods = c("2B1"),
+    description = "As Received Moisture Content",
     output_name = "Moisture"
   )
 )
@@ -292,8 +284,8 @@ cat("\n   Creating site-level summary with all properties...\n")
 
 # Get one record per location-depth combination with key properties
 site_summary <- soil_data %>%
-  filter(ObservedProperty %in% c("4A1", "4B1", "6A1", "6B2", "3A1", 
-                                  "15D3", "15E1", "2B1", "7C2")) %>%
+  filter(ObservedProperty %in% c("4A1", "6A1", "3A1", 
+                                  "15D3", "15E1", "7C2b_NH4_N", "9E1")) %>%
   select(Location_ID, Longitude, Latitude, UpperDepth, LowerDepth,
          ObservedProperty, Value, 
          any_of(c("LDI", "LandUse_Secondary"))) %>%
