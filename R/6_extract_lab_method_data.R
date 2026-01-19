@@ -200,7 +200,7 @@ create_wide_format <- function(data, output_dir, output_name) {
   
   # Create a simplified dataset with key columns
   wide_data <- data %>%
-    select(Location_ID, Longitude, Latitude, UpperDepth, LowerDepth, 
+    dplyr::select(Location_ID, Longitude, Latitude, UpperDepth, LowerDepth, 
            ObservedProperty, Value, Units, SampleDate,
            any_of(c("LDI", "LandUse_Secondary", "LandUse_Tertiary"))) %>%
     # Create unique row identifier
@@ -286,7 +286,7 @@ cat("\n   Creating site-level summary with all properties...\n")
 site_summary <- soil_data %>%
   filter(ObservedProperty %in% c("4A1", "6A1", "3A1", 
                                   "15D3", "15E1", "7C2b_NH4_N", "9E1")) %>%
-  select(Location_ID, Longitude, Latitude, UpperDepth, LowerDepth,
+  dplyr::select(Location_ID, Longitude, Latitude, UpperDepth, LowerDepth,
          ObservedProperty, Value, 
          any_of(c("LDI", "LandUse_Secondary"))) %>%
   pivot_wider(

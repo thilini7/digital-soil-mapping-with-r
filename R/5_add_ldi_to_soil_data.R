@@ -31,7 +31,7 @@ library(readr)
 # =============================================================================
 base_dir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
 
-shapefile_path <- file.path(base_dir, "Data/data_in/shp_files/NSWLanduse2017_Ver1_5_20230921.shp")
+shapefile_path <- file.path(base_dir, "Data/data_in/shp_files/NSW_ACT_Landuse_merged.shp")
 csv_input_path <- file.path(base_dir, "Data/data_out/ansis_lab_measurements/All Sites/ANSIS_combined.csv")
 csv_output_path <- file.path(base_dir, "Data/data_out/ansis_lab_measurements/All Sites/ANSIS_combined_with_LDI.csv")
 
@@ -133,7 +133,7 @@ cat("   Columns:", paste(names(soil_df)[1:10], collapse = ", "), "...\n")
 # =============================================================================
 cat("\n2. Extracting unique locations...\n")
 unique_locs <- soil_df %>%
-  select(Longitude, Latitude) %>%
+  dplyr::select(Longitude, Latitude) %>%
   distinct()
 cat("   Found", nrow(unique_locs), "unique locations\n")
 
@@ -153,7 +153,7 @@ points_sf$Latitude <- unique_locs$Latitude
 # =============================================================================
 # 6. Load NSW Land Use shapefile
 # =============================================================================
-cat("\n4. Loading NSW Land Use shapefile (this may take several minutes)...\n")
+cat("\n4. Loading NSW/ACT Land Use shapefile (this may take several minutes)...\n")
 cat("   File:", shapefile_path, "\n")
 
 landuse_sf <- st_read(shapefile_path, quiet = TRUE)
@@ -161,20 +161,33 @@ cat("   Loaded", nrow(landuse_sf), "land use polygons\n")
 cat("   CRS:", st_crs(landuse_sf)$input, "\n")
 
 # =============================================================================
-# 7. Add LDI values to land use shapefile based on Secondary classification
+# 7. Check LDI values in land use shapefile
 # =============================================================================
-cat("\n5. Mapping land use to LDI values...\n")
+cat("\n5. Checking LDI values in land use data...\n")
 
-ldi_mapping <- create_ldi_mapping()
-
-# Remove original empty LDI column if it exists
+# If LDI column exists and has valid values, use it directly
+# (merged shapefile already has LDI assigned from merge script)
 if ("LDI" %in% names(landuse_sf)) {
-  landuse_sf <- landuse_sf %>% select(-LDI)
+  ldi_valid_count <- sum(!is.na(landuse_sf$LDI))
+  cat("   LDI column exists with", ldi_valid_count, "valid values\n")
+  
+  if (ldi_valid_count > 0) {
+    cat("   Using existing LDI values from shapefile\n")
+  } else {
+    # LDI column exists but all NA - need to map
+    cat("   LDI column is empty, applying mapping...\n")
+    ldi_mapping <- create_ldi_mapping()
+    landuse_sf <- landuse_sf[, setdiff(names(landuse_sf), "LDI")]
+    landuse_sf <- landuse_sf %>%
+      left_join(ldi_mapping, by = "Secondary")
+  }
+} else {
+  # No LDI column - need to create and map
+  cat("   No LDI column found, applying mapping...\n")
+  ldi_mapping <- create_ldi_mapping()
+  landuse_sf <- landuse_sf %>%
+    left_join(ldi_mapping, by = "Secondary")
 }
-
-# Join LDI values to land use data
-landuse_sf <- landuse_sf %>%
-  left_join(ldi_mapping, by = "Secondary")
 
 # Check LDI distribution
 cat("   LDI value distribution in land use data:\n")
@@ -211,6 +224,10 @@ joined_sf <- st_join(points_sf,
                      join = st_within,
                      left = TRUE)
 
+# Mark points that are inside a polygon (even if LDI is NA for water bodies)
+# If Secondary is not NA, the point fell within a polygon
+joined_sf$in_polygon <- !is.na(joined_sf$Secondary)
+
 # Handle duplicates (point in multiple polygons - take first)
 joined_df <- joined_sf %>%
   st_drop_geometry() %>%
@@ -218,59 +235,68 @@ joined_df <- joined_sf %>%
 
 cat("   Joined", nrow(joined_df), "unique locations\n")
 cat("   Points with LDI:", sum(!is.na(joined_df$LDI)), "\n")
-cat("   Points without LDI:", sum(is.na(joined_df$LDI)), "\n")
+cat("   Points in water bodies (LDI=NA):", sum(is.na(joined_df$LDI) & joined_df$in_polygon), "\n")
+cat("   Points outside any polygon:", sum(!joined_df$in_polygon), "\n")
 
 # =============================================================================
-# 9b. Apply nearest neighbor for points without LDI (fallback)
+# 9b. Apply nearest neighbor ONLY for points outside any polygon
 # =============================================================================
-na_count <- sum(is.na(joined_df$LDI))
+# Points in water bodies keep NA, only points outside polygons get nearest neighbor
+outside_count <- sum(!joined_df$in_polygon)
 
-if (na_count > 0) {
-  cat("\n7b. Applying nearest neighbor for", na_count, "points without LDI...\n")
+if (outside_count > 0) {
+  cat("\n7b. Applying nearest neighbor for", outside_count, "points outside polygons...\n")
   
-  # Get points that need nearest neighbor assignment
-  na_points <- joined_sf %>%
-    filter(is.na(LDI)) %>%
-    select(Longitude, Latitude) %>%
+  # Get points that are OUTSIDE any polygon (not in water bodies)
+  outside_points <- joined_sf %>%
+    filter(!in_polygon) %>%
+    dplyr::select(Longitude, Latitude) %>%
     distinct()
   
-  if (nrow(na_points) > 0) {
-    cat("   Finding nearest polygons for", nrow(na_points), "unique locations...\n")
+  if (nrow(outside_points) > 0) {
+    cat("   Finding nearest polygons with valid LDI for", nrow(outside_points), "unique locations...\n")
     
-    # Find nearest polygon for each NA point
-    # Use st_nearest_feature to find index of nearest polygon
-    nearest_idx <- st_nearest_feature(na_points, landuse_sf)
+    # Filter land use to only polygons with non-NA LDI (exclude water bodies)
+    landuse_with_ldi <- landuse_sf %>%
+      filter(!is.na(LDI))
+    cat("   Using", nrow(landuse_with_ldi), "polygons with valid LDI values\n")
+    
+    # Find nearest polygon (with valid LDI) for each outside point
+    nearest_idx <- st_nearest_feature(outside_points, landuse_with_ldi)
     
     # Extract LDI values from nearest polygons
-    nearest_ldi <- landuse_sf$LDI[nearest_idx]
-    nearest_secondary <- landuse_sf$Secondary[nearest_idx]
-    nearest_tertiary <- landuse_sf$Tertiary[nearest_idx]
+    nearest_ldi <- landuse_with_ldi$LDI[nearest_idx]
+    nearest_secondary <- landuse_with_ldi$Secondary[nearest_idx]
+    nearest_tertiary <- landuse_with_ldi$Tertiary[nearest_idx]
     
-    # Create lookup table for NA points
-    na_lookup <- data.frame(
-      Longitude = na_points$Longitude,
-      Latitude = na_points$Latitude,
+    # Create lookup table for outside points
+    outside_lookup <- data.frame(
+      Longitude = outside_points$Longitude,
+      Latitude = outside_points$Latitude,
       LDI_nearest = nearest_ldi,
       Secondary_nearest = nearest_secondary,
       Tertiary_nearest = nearest_tertiary
     )
     
-    # Update joined_df with nearest neighbor values
+    # Update joined_df with nearest neighbor values ONLY for points outside polygons
     joined_df <- joined_df %>%
-      left_join(na_lookup, by = c("Longitude", "Latitude")) %>%
+      left_join(outside_lookup, by = c("Longitude", "Latitude")) %>%
       mutate(
-        # Use nearest neighbor value if original LDI is NA
-        LDI = ifelse(is.na(LDI), LDI_nearest, LDI),
-        Secondary = ifelse(is.na(Secondary), Secondary_nearest, Secondary),
-        Tertiary = ifelse(is.na(Tertiary), Tertiary_nearest, Tertiary)
+        # Use nearest neighbor value ONLY if point is outside any polygon
+        LDI = ifelse(!in_polygon & is.na(LDI), LDI_nearest, LDI),
+        Secondary = ifelse(!in_polygon & is.na(Secondary), Secondary_nearest, Secondary),
+        Tertiary = ifelse(!in_polygon & is.na(Tertiary), Tertiary_nearest, Tertiary)
       ) %>%
-      select(-LDI_nearest, -Secondary_nearest, -Tertiary_nearest)
+      dplyr::select(-LDI_nearest, -Secondary_nearest, -Tertiary_nearest)
     
     cat("   Nearest neighbor assignment complete\n")
     cat("   Points with LDI after nearest neighbor:", sum(!is.na(joined_df$LDI)), "\n")
-    cat("   Points still without LDI:", sum(is.na(joined_df$LDI)), "\n")
+    cat("   Points in water bodies (LDI=NA, kept):", sum(is.na(joined_df$LDI) & joined_df$in_polygon), "\n")
   }
 }
+
+# Remove helper column
+joined_df$in_polygon <- NULL
 
 # =============================================================================
 # 10. Merge LDI values back to original soil data
