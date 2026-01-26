@@ -15,8 +15,8 @@ setwd("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r")
 
 # Platform-independent paths
 data_in_dir <- file.path("Data", "data_out", "lab_method_extracts")
-data_output_filter_prefix <- file.path("Data", "data_out", "splined_data", "carbon", "Carbon_filter_NSW")
-data_output_splined_prefix <- file.path("Data", "data_out", "splined_data", "carbon", "Carbon_splined_NSW")
+data_output_filter_prefix <- file.path("Data", "data_out", "splined_data", "OC", "OC_filter_NSW")
+data_output_splined_prefix <- file.path("Data", "data_out", "splined_data", "OC", "OC_splined_NSW")
 
 # Ensure output directories exist
 dir.create(dirname(data_output_filter_prefix), recursive = TRUE, showWarnings = FALSE)
@@ -28,12 +28,12 @@ source("R/1_2_extract_data_for_func.R")
 # ---- Load and combine data ----
 files <- list.files(path = data_in_dir, pattern = "Organic_Carbon.*\\.csv$", full.names = TRUE)
 if (length(files) == 0) {
-  stop("No Organic_Carbon CSV files found in: ", data_in_dir)
+  stop("No OC CSV files found in: ", data_in_dir)
 }
 dfs <- lapply(files, read.csv)
 
 # Required columns for analysis
-required_cols <- c("Latitude", "Longitude", "UpperDepth", "LowerDepth", "Value", "LDI")
+required_cols <- c("Latitude", "Longitude", "UpperDepth", "LowerDepth", "Value")
 
 dfs <- lapply(dfs, function(x) {
   # Create Location_ID if it doesn't exist (use alternative identifier columns)
@@ -58,7 +58,7 @@ dfs <- lapply(dfs, function(x) {
   x$Location_ID <- as.character(x$Location_ID)
   if ("SampleDate" %in% names(x)) x$SampleDate <- as.character(x$SampleDate)
   
-  num_cols <- c("UpperDepth", "LowerDepth", "Value", "Latitude", "Longitude", "LDI")
+  num_cols <- c("UpperDepth", "LowerDepth", "Value", "Latitude", "Longitude")
   for (col in num_cols) {
     if (col %in% names(x)) {
       x[[col]] <- suppressWarnings(as.numeric(as.character(x[[col]])))
@@ -83,7 +83,7 @@ if ("X" %in% names(df)) df$X <- NULL
 # ---- Basic cleaning ----
 cat("🔍 Checking for NAs...\n")
 rows_before <- nrow(df)
-df <- df[complete.cases(df[, c("Latitude", "Longitude", "UpperDepth", "LowerDepth", "Value", "LDI")]), ]
+df <- df[complete.cases(df[, c("Latitude", "Longitude", "UpperDepth", "LowerDepth", "Value")]), ]
 cat("Removed", rows_before - nrow(df), "rows with NA in key columns.\n")
 
 # ---- Convert depth units (m -> cm) ----
@@ -128,8 +128,8 @@ if ("SampleDate" %in% names(df)) {
   )
   df$SampleDate <- as.Date(df$SampleDate)
   
-  start_date <- as.Date("1970-01-01")
-  end_date   <- as.Date("2000-01-01")
+  start_date <- as.Date("1991-01-01")
+  end_date   <- as.Date("2020-01-01")
   df <- filter(df, SampleDate >= start_date & SampleDate <= end_date)
 }
 
@@ -157,10 +157,10 @@ data_splined <- eaFit$harmonised %>%
   mutate(across(where(is.numeric), ~na_if(., -9999))) %>%
   dplyr::select(-`soil depth`)
 
-# ---- Merge coords and LDI ----
+# ---- Merge coords ----
 df_coords <- df %>%
   group_by(Location_ID) %>%
-  summarise(across(c(Longitude, Latitude, LDI), mean, na.rm = TRUE), .groups = "drop")
+  summarise(across(c(Longitude, Latitude), mean, na.rm = TRUE), .groups = "drop")
 
 data_splined$id <- as.character(data_splined$id)
 df_coords$Location_ID <- as.character(df_coords$Location_ID)

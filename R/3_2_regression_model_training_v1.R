@@ -10,13 +10,13 @@ suppressPackageStartupMessages({
 set.seed(42)
 
 # --- Paths ---
-setwd("/Users/neo/Development/Data-Science/data-science")
+setwd("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/")
 HomeDir <- getwd()
-mod.type <- "mod.regression.oc"
+mod.type <- "mod.regression.OC"
 
 # Optional helpers
-if (file.exists("R-scripts/3_3_func.R")) {
-  source("R-scripts/3_3_func.R")
+if (file.exists("R/3_3_func.R")) {
+  source("R/3_3_func.R")
 }
 
 # Create output dirs
@@ -28,7 +28,7 @@ dir.create(file.path(mod.type, "preds"), recursive = TRUE, showWarnings = FALSE)
 dir.create(file.path(mod.type, "importance"), recursive = TRUE, showWarnings = FALSE)
 
 # --- Load your regression-ready data (must provide df_conc and cov_names) ---
-load("/Users/neo/Development/Data-Science/data-science/Data/data_out/RData/oc_covs_regression.RData")
+load("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_out/RData/OC_covs_regression.RData")
 
 # Sanity checks
 stopifnot(exists("df_conc"), exists("cov_names"))
@@ -63,11 +63,20 @@ ctrl <- trainControl(
 )
 
 # caret's ranger: tune mtry and min.node.size (splitrule fixed to "variance" for regression)
+# Ensure mtry doesn't exceed number of covariates
+n_covariates <- length(cov_names)
+max_mtry <- min(8, n_covariates)
+mtry_values <- unique(pmin(c(2, 5, 8), max_mtry))
+mtry_values <- mtry_values[mtry_values > 0]  # Keep only positive values
+
 rg.tuneGrid <- expand.grid(
-  mtry = c(2, 5, 8),
+  mtry = mtry_values,
   splitrule = "variance",
   min.node.size = c(5, 10)
 )
+
+cat("Number of covariates:", n_covariates, "\n")
+cat("mtry values to tune:", paste(mtry_values, collapse = ", "), "\n")
 
 # --- Training loop over depth columns ---
 for (cc in seq(start_col, end_col)) {

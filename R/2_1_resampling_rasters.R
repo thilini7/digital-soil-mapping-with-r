@@ -3,12 +3,17 @@ if (!requireNamespace("terra", quietly = TRUE)) install.packages("terra")
 
 library(terra)
 
+# Set terra options - create a proper temp directory
+temp_dir <- file.path(getwd(), "temp_terra")
+dir.create(temp_dir, showWarnings = FALSE, recursive = TRUE)
+terraOptions(memfrac = 0.8, tempdir = temp_dir)
+
 # ----------- USER CONFIG -----------
-cov_path <- "D:/InputData/Environmental_Covariate/Covariates" # source folder with raw rasters
-out_path <- "D:/InputData/Environmental_Covariate/Covariates_Aligned"# output folder for aligned rasters
+cov_path <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_in/soil_covariates" # source folder with raw rasters
+out_path <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_in/soil_covariates_aligned"# output folder for aligned rasters
 dir.create(out_path, showWarnings = FALSE, recursive = TRUE)
 
-ref_raster_path <- "D:/InputData/Environmental_Covariate/Covariates/All/Annual_10th_Percen_RF_NSW_ACT_90m.tif"
+ref_raster_path <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_in/soil_covariates/Annual_Max_Temp_90m.tif"
 ref_rast <- rast(ref_raster_path)
 cat("Reference raster:\n", ref_raster_path, "\n")
 cat("  Extent:", paste(as.vector(ext(ref_rast)), collapse = " "), "\n")
@@ -24,23 +29,37 @@ for (i in seq_along(cov_files)) {
   out_file <- file.path(out_path, basename(f))
   
   cat(sprintf("[%d/%d] Processing: %s\n", i, length(cov_files), f))
-  r <- rast(f)
   
-  # Project if CRS is different
-  if (!crs(r) == crs(ref_rast)) {
-    cat("  - Projecting to reference CRS...\n")
-    r <- project(r, ref_rast)
-  }
-  # Crop and resample to reference raster
-  cat("  - Cropping to reference extent...\n")
-  r_crop <- crop(r, ref_rast)
-  cat("  - Resampling to reference grid...\n")
-  # Use method = "bilinear" for continuous, "near" for categorical
-  r_resamp <- resample(r_crop, ref_rast, method = "bilinear")
-  
-  # Save aligned raster
-  writeRaster(r_resamp, out_file, overwrite = TRUE)
-  cat("  ✓ Saved aligned raster to:", out_file, "\n\n")
+  tryCatch({
+    r <- rast(f)
+    
+    # Align to reference: use a single-step approach
+    cat("  - Aligning to reference grid...\n")
+    
+    # Create output raster matching reference, then fill with resampled values
+    # This writes directly to output file avoiding temp file issues
+    if (same.crs(r, ref_rast)) {
+      # Same CRS: crop then resample directly to file
+      r_crop <- crop(r, ref_rast, snap = "out")
+      resample(r_crop, ref_rast, method = "bilinear", filename = out_file, overwrite = TRUE, gdal = c("COMPRESS=LZW"))
+    } else {
+      # Different CRS: project directly to file
+      project(r, ref_rast, method = "bilinear", align = TRUE, filename = out_file, overwrite = TRUE, gdal = c("COMPRESS=LZW"))
+    }
+    
+    cat("  ✓ Saved aligned raster to:", out_file, "\n\n")
+    
+    # Clean up
+    rm(r)
+    if (exists("r_crop")) rm(r_crop)
+    gc(verbose = FALSE)
+    
+  }, error = function(e) {
+    cat("  ✗ ERROR:", conditionMessage(e), "\n\n")
+  })
 }
 
 cat("🎉 All rasters aligned and saved in:\n", out_path, "\n")
+
+# Clean up temp directory
+unlink(temp_dir, recursive = TRUE)
