@@ -9,26 +9,51 @@ suppressPackageStartupMessages({
 # Reproducibility
 set.seed(42)
 
-# --- Paths ---
-setwd("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/")
-HomeDir <- getwd()
-mod.type <- "mod.regression.EC"
+# =============================================================================
+# FILE PATHS - CENTRALIZED CONFIGURATION
+# =============================================================================
+HomeDir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
+setwd(HomeDir)
+
+# INPUT: Change soil_property to match your data file
+soil_property <- "EC"  # Options: pH, OC, BD, CEC, EC, Clay, etc.
+
+# Input data paths
+data_input_path <- file.path(HomeDir, "Data/data_out/RData", 
+                             paste0(soil_property, "_covs_regression.RData"))
+soil_covariates_csv <- file.path(HomeDir, "Data/data_out/Soil_data_with_covariates",
+                                 paste0(soil_property, "_with_covariates_new.csv"))
+
+# Output model directory name
+mod_type <- paste0("mod.regression.", soil_property)
+
+# Output subdirectories
+dir_models <- file.path(HomeDir, mod_type, "models")
+dir_cv <- file.path(HomeDir, mod_type, "cv")
+dir_metrics <- file.path(HomeDir, mod_type, "metrics")
+dir_preds <- file.path(HomeDir, mod_type, "preds")
+dir_importance <- file.path(HomeDir, mod_type, "importance")
+
+# Print configuration
+cat("\n", paste(rep("=", 70), collapse = ""), "\n", sep = "")
+cat("RANDOM FOREST MODEL TRAINING - CONFIGURATION\n")
+cat("Soil Property: ", soil_property, "\n", sep = "")
+cat("Input RData: ", basename(data_input_path), "\n", sep = "")
+cat("Output Directory: ", file.path(HomeDir, mod_type), "\n", sep = "")
+cat(paste(rep("=", 70), collapse = ""), "\n\n", sep = "")
 
 # Optional helpers
 if (file.exists("R/3_3_func.R")) {
   source("R/3_3_func.R")
 }
 
-# Create output dirs
-dir.create(file.path(mod.type), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(mod.type, "models"), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(mod.type, "cv"), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(mod.type, "metrics"), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(mod.type, "preds"), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(mod.type, "importance"), recursive = TRUE, showWarnings = FALSE)
+# Create output directories
+for (dir in list(dir_models, dir_cv, dir_metrics, dir_preds, dir_importance)) {
+  dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+}
 
 # --- Load your regression-ready data (must provide df_conc and cov_names) ---
-load("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_out/RData/EC_covs_regression.RData")
+load(data_input_path)
 
 # Sanity checks
 stopifnot(exists("df_conc"), exists("cov_names"))
@@ -178,7 +203,7 @@ for (cc in seq(start_col, end_col)) {
     cat("  Setting up spatial block CV...\n")
     tryCatch({
       # Need coordinates - load from original data
-      orig_df <- read.csv("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_out/Soil_data_with_covariates/OC_with_covariates_new.csv")
+      orig_df <- read.csv(soil_covariates_csv)
       train_coords <- orig_df[idx_train, c("Longitude", "Latitude")]
       train_coords <- train_coords[complete.cases(train_coords), ]
       
@@ -235,10 +260,10 @@ for (cc in seq(start_col, end_col)) {
   
   # Save CV grid + best tune
   write.csv(t.mrg$results,
-            file = file.path(HomeDir, mod.type, "cv", paste0("cv_grid_", depth_name, ".csv")),
+            file = file.path(dir_cv, paste0("cv_grid_", depth_name, ".csv")),
             row.names = FALSE)
   saveRDS(t.mrg$bestTune,
-          file = file.path(HomeDir, mod.type, "cv", paste0("bestTune_", depth_name, ".rds")))
+          file = file.path(dir_cv, paste0("bestTune_", depth_name, ".rds")))
   
   # --- Evaluate on 20% hold-out ---
   pred_test <- predict(t.mrg, newdata = df_test)
@@ -261,7 +286,7 @@ for (cc in seq(start_col, end_col)) {
     stringsAsFactors = FALSE
   )
   write.csv(metrics,
-            file = file.path(HomeDir, mod.type, "metrics", paste0("metrics_", depth_name, ".csv")),
+            file = file.path(dir_metrics, paste0("metrics_", depth_name, ".csv")),
             row.names = FALSE)
   
   # Save test predictions (paired)
@@ -271,7 +296,7 @@ for (cc in seq(start_col, end_col)) {
     pred  = pred_test
   )
   write.csv(preds_out,
-            file = file.path(HomeDir, mod.type, "preds", paste0("pred_test_", depth_name, ".csv")),
+            file = file.path(dir_preds, paste0("pred_test_", depth_name, ".csv")),
             row.names = FALSE)
   
   # --- Final model (either refit on all data or keep train-only) ---
@@ -294,7 +319,7 @@ for (cc in seq(start_col, end_col)) {
   
   # Save model
   saveRDS(final_model,
-          file = file.path(HomeDir, mod.type, "models", paste0(depth_name, ".rds")))
+          file = file.path(dir_models, paste0(depth_name, ".rds")))
   cat("Saved model for", depth_name, "\n")
   
   # --- Variable importance export (from final model if available) ---
@@ -307,7 +332,7 @@ for (cc in seq(start_col, end_col)) {
   
   if (!is.null(vi)) {
     write.csv(vi,
-              file = file.path(HomeDir, mod.type, "importance", paste0("importance_", depth_name, ".csv")),
+              file = file.path(dir_importance, paste0("importance_", depth_name, ".csv")),
               row.names = FALSE)
   }
 }
