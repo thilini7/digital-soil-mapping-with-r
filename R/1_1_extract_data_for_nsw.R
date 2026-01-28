@@ -11,12 +11,30 @@ library(lubridate)
 library(nswgeo)
 
 # ---- Set working directory ----
-setwd("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r")
+HomeDir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
+setwd(HomeDir)
 
-# Platform-independent paths
-data_in_dir <- file.path("Data", "data_out", "lab_method_extracts")
-data_output_filter_prefix <- file.path("Data", "data_out", "splined_data", "Phosphorus", "Phosphorus_filter_NSW")
-data_output_splined_prefix <- file.path("Data", "data_out", "splined_data", "Phosphorus", "Phosphorus_splined_NSW")
+# =============================================================================
+# FILE PATHS - CENTRALIZED CONFIGURATION
+# =============================================================================
+# INPUT: Change soil_property to match your data
+soil_property <- "Phosphorus"  # Options: pH, OC, BD, CEC, EC, Clay, etc.
+
+# Input data path
+data_in_dir <- file.path(HomeDir, "Data", "data_out", "lab_method_extracts")
+
+# Output data paths
+data_out_dir <- file.path(HomeDir, "Data", "data_out", "splined_data", soil_property)
+data_output_filter_prefix <- file.path(data_out_dir, paste0(soil_property, "_filter_NSW"))
+data_output_splined_prefix <- file.path(data_out_dir, paste0(soil_property, "_splined_NSW"))
+
+# Print configuration
+cat("\n", paste(rep("=", 70), collapse = ""), "\n", sep = "")
+cat("NSW DATA EXTRACTION - CONFIGURATION\n")
+cat("Soil Property: ", soil_property, "\n", sep = "")
+cat("Input Directory: ", data_in_dir, "\n", sep = "")
+cat("Output Directory: ", data_out_dir, "\n", sep = "")
+cat(paste(rep("=", 70), collapse = ""), "\n\n", sep = "")
 
 # Ensure output directories exist
 dir.create(dirname(data_output_filter_prefix), recursive = TRUE, showWarnings = FALSE)
@@ -26,9 +44,10 @@ dir.create(dirname(data_output_splined_prefix), recursive = TRUE, showWarnings =
 source("R/1_2_extract_data_for_func.R")
 
 # ---- Load and combine data ----
-files <- list.files(path = data_in_dir, pattern = "Phosphorus.*\\.csv$", full.names = TRUE)
+pattern <- paste0(soil_property, ".*\\.csv$")
+files <- list.files(path = data_in_dir, pattern = pattern, full.names = TRUE)
 if (length(files) == 0) {
-  stop("No Data CSV files found in: ", data_in_dir)
+  stop("No Data CSV files found in: ", data_in_dir, " matching pattern: ", pattern)
 }
 dfs <- lapply(files, read.csv)
 

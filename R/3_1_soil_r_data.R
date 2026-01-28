@@ -1,5 +1,39 @@
+# =============================================================================
+# PREPARE SOIL DATA FOR REGRESSION MODELING
+# Loads soil property data, removes NA values, creates transformed versions
+# =============================================================================
+
+# =============================================================================
+# FILE PATHS - CENTRALIZED CONFIGURATION
+# =============================================================================
+HomeDir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
+setwd(HomeDir)
+
+# INPUT: Change soil_property to match your data
+soil_property <- "Phosphorus"  # Options: pH, OC, BD, CEC, EC, Clay, etc.
+
+# Input data path
+soil_data_csv <- file.path(HomeDir, "Data/data_out/Soil_data_with_covariates",
+                           paste0(soil_property, "_with_covariates_new.csv"))
+
+# Output data path
+output_dir <- file.path(HomeDir, "Data/data_out/RData")
+output_file <- file.path(output_dir, paste0(soil_property, "_covs_regression.RData"))
+
+# Print configuration
+cat("\n", paste(rep("=", 70), collapse = ""), "\n", sep = "")
+cat("SOIL DATA PREPARATION - CONFIGURATION\n")
+cat("Soil Property: ", soil_property, "\n", sep = "")
+cat("Input CSV: ", basename(soil_data_csv), "\n", sep = "")
+cat("Output RData: ", basename(output_file), "\n", sep = "")
+cat(paste(rep("=", 70), collapse = ""), "\n\n", sep = "")
+
+# =============================================================================
+# DATA PROCESSING
+# =============================================================================
+
 # Read CSV
-df <- read.csv("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_out/Soil_data_with_covariates/Phosphorus_with_covariates_new.csv")
+df <- read.csv(soil_data_csv)
 
 # Identify columns
 depth_cols <- c("X0.5cm", "X5.15cm", "X15.30cm", "X30.60cm", "X60.100cm", "X100.200cm")
@@ -48,16 +82,21 @@ for (col in depth_cols) {
   df_preab[[col]] <- factor(df_preab[[col]], levels = c(0, 1))
 }
 
-# Save
+# Save data
 cov_names <- covariate_cols
-output_dir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_out/RData"
+
+# Create output directory if it doesn't exist
 if (!dir.exists(output_dir)) {
-  # If it doesn't exist, create it
   dir.create(output_dir, recursive = TRUE)
-  cat(paste("Directory", output_dir, "created.\n"))
+  cat("Created directory:", output_dir, "\n")
 }
 
+# Save as RData
 save(df_preab, df_conc, df_conc_log, cov_names, 
-     file = file.path(output_dir, "Phosphorus_covs_regression.RData"))
+     file = output_file)
 
-cat("\nSaved: df_conc (original), df_conc_log (log-transformed), df_preab (classification), cov_names\n")
+cat("\n", paste(rep("=", 70), collapse = ""), "\n", sep = "")
+cat("DATA SAVED SUCCESSFULLY\n")
+cat("Output file:", output_file, "\n")
+cat("Objects saved: df_conc, df_conc_log, df_preab, cov_names\n")
+cat(paste(rep("=", 70), collapse = ""), "\n\n", sep = "")

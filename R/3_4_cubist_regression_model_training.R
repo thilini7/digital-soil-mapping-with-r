@@ -18,10 +18,39 @@ suppressPackageStartupMessages({
 # Reproducibility
 set.seed(42)
 
-# --- Paths ---
-setwd("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/")
-HomeDir <- getwd()
-mod.type <- "mod.cubist.Phosphorus"  # Change to your target property
+# =============================================================================
+# FILE PATHS - CENTRALIZED CONFIGURATION
+# =============================================================================
+HomeDir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
+setwd(HomeDir)
+
+# INPUT: Change soil_property to match your data file
+soil_property <- "Phosphorus"  # Options: pH, OC, BD, CEC, EC, Clay, etc.
+
+# Input data paths
+data_input_path <- file.path(HomeDir, "Data/data_out/RData", 
+                             paste0(soil_property, "_covs_regression.RData"))
+soil_covariates_csv <- file.path(HomeDir, "Data/data_out/Soil_data_with_covariates",
+                                 paste0(soil_property, "_with_covariates_new.csv"))
+
+# Output model directory name
+mod_type <- paste0("mod.cubist.", soil_property)
+
+# Output subdirectories
+dir_models <- file.path(HomeDir, mod_type, "models")
+dir_cv <- file.path(HomeDir, mod_type, "cv")
+dir_metrics <- file.path(HomeDir, mod_type, "metrics")
+dir_preds <- file.path(HomeDir, mod_type, "preds")
+dir_importance <- file.path(HomeDir, mod_type, "importance")
+dir_rules <- file.path(HomeDir, mod_type, "rules")
+
+# Print configuration
+cat("\n", paste(rep("=", 70), collapse = ""), "\n", sep = "")
+cat("CUBIST MODEL TRAINING - CONFIGURATION\n")
+cat("Soil Property: ", soil_property, "\n", sep = "")
+cat("Input RData: ", basename(data_input_path), "\n", sep = "")
+cat("Output Directory: ", file.path(HomeDir, mod_type), "\n", sep = "")
+cat(paste(rep("=", 70), collapse = ""), "\n\n", sep = "")
 
 # Optional helpers
 if (file.exists("R/3_3_func.R")) {
@@ -29,17 +58,13 @@ if (file.exists("R/3_3_func.R")) {
 }
 
 # Create output directories
-dir.create(file.path(mod.type), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(mod.type, "models"), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(mod.type, "cv"), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(mod.type, "metrics"), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(mod.type, "preds"), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(mod.type, "importance"), recursive = TRUE, showWarnings = FALSE)
-dir.create(file.path(mod.type, "rules"), recursive = TRUE, showWarnings = FALSE)
+for (dir in list(dir_models, dir_cv, dir_metrics, dir_preds, dir_importance, dir_rules)) {
+  dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+}
 
 # --- Load your regression-ready data ---
 # Must provide df_conc (data frame) and cov_names (character vector of covariate names)
-load("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_out/RData/Phosphorus_covs_regression.RData")
+load(data_input_path)
 
 # Sanity checks
 stopifnot(exists("df_conc"), exists("cov_names"))
@@ -249,7 +274,7 @@ for (cc in seq(start_col, end_col)) {
         train_coords <- df_with_coords[idx_train, c("Longitude", "Latitude")]
       } else {
         # Load from original CSV and match by row indices BEFORE filtering
-        orig_df <- read.csv("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_out/Soil_data_with_covariates/OC_with_covariates_new.csv")
+        orig_df <- read.csv(soil_covariates_csv)
         
         # Add coordinates to df_model first, then filter together
         df_with_coords <- df_model
@@ -323,10 +348,10 @@ for (cc in seq(start_col, end_col)) {
   
   # Save CV grid + best tune
   write.csv(t.cubist$results,
-            file = file.path(HomeDir, mod.type, "cv", paste0("cv_grid_", depth_name, ".csv")),
+            file = file.path(dir_cv, paste0("cv_grid_", depth_name, ".csv")),
             row.names = FALSE)
   saveRDS(t.cubist$bestTune,
-          file = file.path(HomeDir, mod.type, "cv", paste0("bestTune_", depth_name, ".rds")))
+          file = file.path(dir_cv, paste0("bestTune_", depth_name, ".rds")))
   
   # --- Evaluate on 20% hold-out ---
   pred_test <- predict(t.cubist, newdata = df_test)
@@ -370,7 +395,7 @@ for (cc in seq(start_col, end_col)) {
   all_metrics[[depth_name]] <- metrics
   
   write.csv(metrics,
-            file = file.path(HomeDir, mod.type, "metrics", paste0("metrics_", depth_name, ".csv")),
+            file = file.path(dir_metrics, paste0("metrics_", depth_name, ".csv")),
             row.names = FALSE)
   
   cat("  Metrics: RMSE =", round(RMSE, 4), 
@@ -385,7 +410,7 @@ for (cc in seq(start_col, end_col)) {
     residual = obs_test - pred_test
   )
   write.csv(preds_out,
-            file = file.path(HomeDir, mod.type, "preds", paste0("pred_test_", depth_name, ".csv")),
+            file = file.path(dir_preds, paste0("pred_test_", depth_name, ".csv")),
             row.names = FALSE)
   
   # --- Final model trained on ALL data ---
@@ -410,19 +435,18 @@ for (cc in seq(start_col, end_col)) {
   
   # Save model
   saveRDS(final_model,
-          file = file.path(HomeDir, mod.type, "models", paste0(depth_name, ".rds")))
+          file = file.path(dir_models, paste0(depth_name, ".rds")))
   cat("  ✓ Saved model for", depth_name, "\n")
   
   # --- Extract and save Cubist rules ---
-  extract_cubist_rules(final_model, depth_name, 
-                       file.path(HomeDir, mod.type, "rules"))
+  extract_cubist_rules(final_model, depth_name, dir_rules)
   
   # --- Variable importance export ---
   vi <- get_cubist_importance(t.cubist)
   
   if (!is.null(vi)) {
     write.csv(vi,
-              file = file.path(HomeDir, mod.type, "importance", paste0("importance_", depth_name, ".csv")),
+              file = file.path(dir_importance, paste0("importance_", depth_name, ".csv")),
               row.names = FALSE)
     
     # Print top 10 important variables
@@ -449,7 +473,7 @@ if (length(all_metrics) > 0) {
   
   # Save combined metrics
   write.csv(summary_df,
-            file = file.path(HomeDir, mod.type, "metrics", "all_depths_metrics.csv"),
+            file = file.path(dir_metrics, "all_depths_metrics.csv"),
             row.names = FALSE)
   
   cat("\nMean performance:\n")
@@ -461,7 +485,7 @@ if (length(all_metrics) > 0) {
 
 cat("\n==============================\n")
 cat("All Cubist models trained successfully!\n")
-cat("Output directory:", file.path(HomeDir, mod.type), "\n")
+cat("Output directory:", file.path(HomeDir, mod_type), "\n")
 cat("==============================\n")
 
 # =============================================================================
