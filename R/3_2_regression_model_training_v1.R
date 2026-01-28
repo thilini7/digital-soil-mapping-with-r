@@ -12,7 +12,7 @@ set.seed(42)
 # --- Paths ---
 setwd("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/")
 HomeDir <- getwd()
-mod.type <- "mod.regression.OC"
+mod.type <- "mod.regression.EC"
 
 # Optional helpers
 if (file.exists("R/3_3_func.R")) {
@@ -28,7 +28,7 @@ dir.create(file.path(mod.type, "preds"), recursive = TRUE, showWarnings = FALSE)
 dir.create(file.path(mod.type, "importance"), recursive = TRUE, showWarnings = FALSE)
 
 # --- Load your regression-ready data (must provide df_conc and cov_names) ---
-load("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_out/RData/OC_covs_regression.RData")
+load("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_out/RData/EC_covs_regression.RData")
 
 # Sanity checks
 stopifnot(exists("df_conc"), exists("cov_names"))
@@ -54,41 +54,108 @@ cat("Running on", n_cores, "cores\n")
 
 # --- Controls / knobs ---
 retrain_on_all <- TRUE     # set FALSE to keep the train-only model
-num_trees      <- 200      # used for both tuning fit and final refit
+num_trees      <- 500      # increased for better accuracy (was 200)
+use_log_transform <- TRUE  # set TRUE to use log-transformed OC values
+use_spatial_cv <- TRUE     # set TRUE for spatial cross-validation (recommended for soil mapping)
+add_interactions <- TRUE   # set TRUE to add feature interactions
 
+# Install blockCV if needed for spatial CV
+if (use_spatial_cv) {
+  if (!requireNamespace("blockCV", quietly = TRUE)) {
+    install.packages("blockCV")
+  }
+  if (!requireNamespace("sf", quietly = TRUE)) {
+    install.packages("sf")
+  }
+  library(blockCV)
+  library(sf)
+}
+
+# Standard CV control (used if spatial CV is disabled or as fallback)
 ctrl <- trainControl(
   method = "cv",
-  number = 5,
-  allowParallel = TRUE
+  number = 10,              # increased to 10-fold CV for more stable estimates
+  allowParallel = TRUE,
+  savePredictions = "final" # save predictions for analysis
 )
 
 # caret's ranger: tune mtry and min.node.size (splitrule fixed to "variance" for regression)
-# Ensure mtry doesn't exceed number of covariates
+# Expanded tuning grid for better optimization
 n_covariates <- length(cov_names)
-max_mtry <- min(8, n_covariates)
-mtry_values <- unique(pmin(c(2, 5, 8), max_mtry))
-mtry_values <- mtry_values[mtry_values > 0]  # Keep only positive values
+# Test mtry from sqrt(p) to p/2 (common range for RF)
+mtry_values <- unique(c(
+  floor(sqrt(n_covariates)),      # sqrt(p) - default
+  floor(n_covariates / 3),        # p/3
+  floor(n_covariates / 2),        # p/2
+  min(10, n_covariates)           # fixed value
+))
+mtry_values <- sort(mtry_values[mtry_values > 0])
 
 rg.tuneGrid <- expand.grid(
   mtry = mtry_values,
   splitrule = "variance",
-  min.node.size = c(5, 10)
+  min.node.size = c(3, 5, 10)     # added smaller node size for more complex trees
 )
 
 cat("Number of covariates:", n_covariates, "\n")
 cat("mtry values to tune:", paste(mtry_values, collapse = ", "), "\n")
+cat("Using log-transformed data:", use_log_transform, "\n")
+
+# Select data based on log-transform option
+if (use_log_transform && exists("df_conc_log")) {
+  df_model <- df_conc_log
+  cat(">>> Using LOG-TRANSFORMED OC values\n")
+} else {
+  df_model <- df_conc
+  cat(">>> Using ORIGINAL OC values\n")
+}
+
+# --- Feature Engineering: Add interaction terms ---
+if (add_interactions) {
+  cat("\n>>> Adding feature interactions...\n")
+  
+  # Check which covariates exist in the data
+  has_twi <- "Relief_TWI_3s" %in% cov_names
+  has_rf <- "Annual_Mean_RF_90m" %in% cov_names
+  has_temp <- "Annual_Max_Temp_90m" %in% cov_names
+  has_dem <- "Relief_Dems_3s_Mosaic" %in% cov_names
+  has_slope <- "Relief_Slope_Perc" %in% cov_names
+  
+  # TWI x Rainfall interaction (moisture accumulation potential)
+  if (has_twi && has_rf) {
+    df_model$TWI_x_Rainfall <- df_model$Relief_TWI_3s * df_model$Annual_Mean_RF_90m / 1000
+    cov_names <- c(cov_names, "TWI_x_Rainfall")
+    cat("  + Added TWI_x_Rainfall\n")
+  }
+  
+  # Elevation x Temperature interaction (climate gradient)
+  if (has_dem && has_temp) {
+    df_model$DEM_x_Temp <- df_model$Relief_Dems_3s_Mosaic * df_model$Annual_Max_Temp_90m / 1000
+    cov_names <- c(cov_names, "DEM_x_Temp")
+    cat("  + Added DEM_x_Temp\n")
+  }
+  
+  # Slope x Rainfall interaction (erosion potential)
+  if (has_slope && has_rf) {
+    df_model$Slope_x_Rainfall <- df_model$Relief_Slope_Perc * df_model$Annual_Mean_RF_90m / 1000
+    cov_names <- c(cov_names, "Slope_x_Rainfall")
+    cat("  + Added Slope_x_Rainfall\n")
+  }
+  
+  cat("Total covariates after feature engineering:", length(cov_names), "\n")
+}
 
 # --- Training loop over depth columns ---
 for (cc in seq(start_col, end_col)) {
-  depth_name <- names(df_conc)[cc]
+  depth_name <- names(df_model)[cc]
   cat("\n==============================\n")
   cat(">>> Working on", depth_name, "\n")
   
   # --- Prepare data ---
-  df <- df_conc %>%
+  df <- df_model %>%
     dplyr::select(all_of(c(depth_name, cov_names))) %>%
     filter(complete.cases(.)) %>%
-    filter(.data[[depth_name]] > 0, .data[[depth_name]] < 200)
+    filter(is.finite(.data[[depth_name]]))  # handle log-transformed data
   
   n_all <- nrow(df)
   cat("Records after cleaning:", n_all, "\n")
@@ -103,10 +170,56 @@ for (cc in seq(start_col, end_col)) {
   df_test   <- df[-idx_train, , drop = FALSE]
   cat("Train:", nrow(df_train), " Test:", nrow(df_test), "\n")
   
-  # --- Tuning on training set only ---
+  # --- Set up cross-validation (spatial or random) ---
   t0 <- Sys.time()
   formulaString <- as.formula(paste0(depth_name, " ~ ", paste(cov_names, collapse = " + ")))
   
+  if (use_spatial_cv) {
+    cat("  Setting up spatial block CV...\n")
+    tryCatch({
+      # Need coordinates - load from original data
+      orig_df <- read.csv("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_out/Soil_data_with_covariates/OC_with_covariates_new.csv")
+      train_coords <- orig_df[idx_train, c("Longitude", "Latitude")]
+      train_coords <- train_coords[complete.cases(train_coords), ]
+      
+      # Match rows with df_train
+      if (nrow(train_coords) >= nrow(df_train)) {
+        train_coords <- train_coords[1:nrow(df_train), ]
+      }
+      
+      # Create sf object
+      train_sf <- st_as_sf(cbind(df_train, train_coords), 
+                           coords = c("Longitude", "Latitude"), 
+                           crs = 4326)
+      
+      # Create spatial blocks (~50km blocks for NSW scale)
+      sb <- cv_spatial(
+        x = train_sf,
+        k = 10,                    # 10-fold spatial CV
+        size = 50000,              # 50km block size
+        selection = "random",
+        iteration = 50,
+        progress = FALSE
+      )
+      
+      # Convert to caret-compatible format
+      ctrl_spatial <- trainControl(
+        method = "cv",
+        number = 10,
+        index = sb$folds_ids,
+        allowParallel = TRUE,
+        savePredictions = "final"
+      )
+      ctrl <- ctrl_spatial
+      cat("  ✓ Using spatial block CV (50km blocks)\n")
+    }, error = function(e) {
+      cat("  ✗ Spatial CV failed:", conditionMessage(e), "\n")
+      cat("  → Falling back to random CV\n")
+    })
+  }
+  
+  # --- Train model with tuning ---
+  cat("  Training Random Forest model...\n")
   t.mrg <- caret::train(
     formulaString,
     data = df_train,

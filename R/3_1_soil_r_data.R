@@ -1,27 +1,45 @@
 # Read CSV
-df <- read.csv("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_out/Soil_data_with_covariates/OC_with_covariates_new.csv")
+df <- read.csv("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_out/Soil_data_with_covariates/Phosphorus_with_covariates_new.csv")
 
 # Identify columns
 depth_cols <- c("X0.5cm", "X5.15cm", "X15.30cm", "X30.60cm", "X60.100cm", "X100.200cm")
-covariate_cols <- setdiff(names(df), c("id", "Longitude", "Latitude", depth_cols))
 
-# Define thresholds for filtering depth values
-depth_threshold_lower <- 0.01  # lower limit - change as needed
-depth_threshold_upper <- 10  # upper limit - change as needed
+# Get all potential covariates
+all_covariates <- setdiff(names(df), c("id", "Longitude", "Latitude", depth_cols))
 
-# Regression datap
+# Exclude covariates that change in the future (for climate projection studies)
+# - FPAR (fractional vegetation) - changes with climate
+# - Clay content - if present, changes are uncertain
+excluded_covariates <- c(
+  "FPAR_pct_max_NSW_ACT_90m",
+  "FPAR_pct_mean_NSW_ACT_90m", 
+  "FPAR_pct_median_NSW_ACT_90m",
+  "FPAR_pct_min_NSW_ACT_90m"
+  # Add any clay-related covariates here if present
+)
+
+# Keep only static (terrain, parent material) and climate covariates (have future projections)
+covariate_cols <- setdiff(all_covariates, excluded_covariates)
+cat("Excluded covariates (change in future):", paste(excluded_covariates, collapse = ", "), "\n")
+cat("Using", length(covariate_cols), "covariates for modeling:\n")
+cat(paste(covariate_cols, collapse = ", "), "\n\n")
+
+# Regression data
 df_conc <- df[, c(depth_cols, covariate_cols)]
 
-# 1. Set depth values outside threshold range to NA
-for (col in depth_cols) {
-  df_conc[[col]][df_conc[[col]] < depth_threshold_lower | df_conc[[col]] > depth_threshold_upper] <- NA
-}
-
-# 2. Remove rows where all depth columns are NA
+# Remove rows where all depth columns are NA
 df_conc <- df_conc[rowSums(!is.na(df_conc[, depth_cols])) > 0, ]
 
-# 3. Remove rows with NA in any covariate column
+# Remove rows with NA in any covariate column
 df_conc <- df_conc[complete.cases(df_conc[, covariate_cols]), ]
+
+# 4. Create log-transformed version (often improves model accuracy for soil OC)
+df_conc_log <- df_conc
+for (col in depth_cols) {
+  # log1p handles zeros: log1p(x) = log(1 + x)
+  df_conc_log[[col]] <- log1p(df_conc_log[[col]])
+}
+cat("Created log-transformed data (df_conc_log) for improved modeling\n")
 
 # Classification data (presence/absence)
 df_preab <- df_conc
@@ -39,5 +57,7 @@ if (!dir.exists(output_dir)) {
   cat(paste("Directory", output_dir, "created.\n"))
 }
 
-save(df_preab, df_conc, cov_names, 
-     file = file.path(output_dir, "OC_covs_regression.RData"))
+save(df_preab, df_conc, df_conc_log, cov_names, 
+     file = file.path(output_dir, "Phosphorus_covs_regression.RData"))
+
+cat("\nSaved: df_conc (original), df_conc_log (log-transformed), df_preab (classification), cov_names\n")

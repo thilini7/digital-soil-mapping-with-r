@@ -18,7 +18,7 @@ names(cov_stack) <- tools::file_path_sans_ext(basename(cov_files))
 cat("Loaded", nlyr(cov_stack), "covariate layers.\n")
 
 # 3. Load soil point data (must have columns: Longitude, Latitude, property)
-soil_points <- read.csv("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_out/splined_data/OC/OC_splined_NSW_1991_2020_Data.csv")
+soil_points <- read.csv("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_out/splined_data/Phosphorus/Phosphorus_splined_NSW_1991_2020_Data.csv")
 cat("Loaded", nrow(soil_points), "soil points.\n")
 
 # 4. Convert soil points to SpatVector for terra extraction
@@ -36,7 +36,7 @@ soil_with_covs <- cbind(soil_points, cov_values)
 output_dir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_out/Soil_data_with_covariates"
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
-output_file <- file.path(output_dir, "OC_with_covariates_new.csv")
+output_file <- file.path(output_dir, "Phosphorus_with_covariates_new.csv")
 write.csv(soil_with_covs, output_file, row.names = FALSE)
 
 cat("✅ File saved to:", output_file, "\n")

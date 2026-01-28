@@ -15,8 +15,8 @@ setwd("/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r")
 
 # Platform-independent paths
 data_in_dir <- file.path("Data", "data_out", "lab_method_extracts")
-data_output_filter_prefix <- file.path("Data", "data_out", "splined_data", "OC", "OC_filter_NSW")
-data_output_splined_prefix <- file.path("Data", "data_out", "splined_data", "OC", "OC_splined_NSW")
+data_output_filter_prefix <- file.path("Data", "data_out", "splined_data", "Phosphorus", "Phosphorus_filter_NSW")
+data_output_splined_prefix <- file.path("Data", "data_out", "splined_data", "Phosphorus", "Phosphorus_splined_NSW")
 
 # Ensure output directories exist
 dir.create(dirname(data_output_filter_prefix), recursive = TRUE, showWarnings = FALSE)
@@ -26,9 +26,9 @@ dir.create(dirname(data_output_splined_prefix), recursive = TRUE, showWarnings =
 source("R/1_2_extract_data_for_func.R")
 
 # ---- Load and combine data ----
-files <- list.files(path = data_in_dir, pattern = "Organic_Carbon.*\\.csv$", full.names = TRUE)
+files <- list.files(path = data_in_dir, pattern = "Phosphorus.*\\.csv$", full.names = TRUE)
 if (length(files) == 0) {
-  stop("No OC CSV files found in: ", data_in_dir)
+  stop("No Data CSV files found in: ", data_in_dir)
 }
 dfs <- lapply(files, read.csv)
 
@@ -95,7 +95,7 @@ cat("After conversion, LowerDepth min/max:", min(df$LowerDepth), max(df$LowerDep
 
 # Remove impossible/outlier depths and values (after conversion)
 df <- df[df$UpperDepth >= 0 & df$LowerDepth > 0 & df$LowerDepth <= 200, ]
-df <- df[df$Value >= 0 & df$Value < 100, ]
+df <- df[df$Value >= 1 & df$Value < 40, ]
 
 # ---- Fix reversed/zero-thickness horizons ----
 reversed <- df$LowerDepth <= df$UpperDepth
