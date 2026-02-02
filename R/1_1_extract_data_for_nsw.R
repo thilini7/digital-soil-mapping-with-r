@@ -18,7 +18,7 @@ setwd(HomeDir)
 # FILE PATHS - CENTRALIZED CONFIGURATION
 # =============================================================================
 # INPUT: Change soil_property to match your data
-soil_property <- "Phosphorus"  # Options: pH, OC, BD, CEC, EC, Clay, etc.
+soil_property <- "Organic_Carbon"  # Options: pH, OC, BD, CEC, EC, Clay, etc.
 
 # Input data path
 data_in_dir <- file.path(HomeDir, "Data", "data_out", "lab_method_extracts")
@@ -99,6 +99,18 @@ if (length(dfs) == 0) {
 df <- dplyr::bind_rows(dfs)
 if ("X" %in% names(df)) df$X <- NULL
 
+# ---- Filter out CSIRO data ----
+# cat("\n🔍 Removing CSIRO Location_ID records...\n")
+# rows_before <- nrow(df)
+# # CSIRO IDs follow pattern: CSIRO+###+ ... (e.g., CSIRO+180+BASE+12450)
+# # Remove (negate) these records
+# df <- df[!grepl("^CSIRO\\+", df$Location_ID), ]
+# cat("Removed", rows_before - nrow(df), "CSIRO records (kept", nrow(df), "non-CSIRO records)\n")
+
+# if (nrow(df) == 0) {
+#   stop("No non-CSIRO records found! All data was CSIRO format (CSIRO+180+BASE+12450).\n")
+# }
+
 # ---- Basic cleaning ----
 cat("🔍 Checking for NAs...\n")
 rows_before <- nrow(df)
@@ -114,7 +126,7 @@ cat("After conversion, LowerDepth min/max:", min(df$LowerDepth), max(df$LowerDep
 
 # Remove impossible/outlier depths and values (after conversion)
 df <- df[df$UpperDepth >= 0 & df$LowerDepth > 0 & df$LowerDepth <= 200, ]
-df <- df[df$Value >= 1 & df$Value < 40, ]
+df <- df[df$Value >= 0.4 & df$Value < 10, ]
 
 # ---- Fix reversed/zero-thickness horizons ----
 reversed <- df$LowerDepth <= df$UpperDepth

@@ -1,13 +1,18 @@
 library(terra)
+library(Cubist)
+
+# --- Configuration ---
+HomeDir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
+soil_property <- "Organic_Carbon"
+depth_name <- "X0.5cm"  # Change to desired depth: X0.5cm, X5.15cm, X15.30cm, X30.60cm, X60.100cm, X100.200cm
 
 # --- Paths ---
-cov_folder <- "/Users/neo/Development/Data-Science/data-science/Data/data_in/soil_covariates_aligned" 
-model_file <- "/Users/neo/Development/Data-Science/data-science/mod.regression.oc/models/X0.5cm.rds"
-output_tif <- "/Users/neo/Development/Data-Science/data-science/maps/oc_pred_X0.5cm_v1.tif"
+cov_folder <- file.path(HomeDir, "Data/data_in/soil_covariates_aligned")
+model_file <- file.path(HomeDir, paste0("mod.cubist.", soil_property), "models", paste0(depth_name, ".rds"))
+output_tif <- file.path(HomeDir, paste0("mod.cubist.", soil_property), "preds", paste0(soil_property, "_pred_", depth_name, ".tif"))
 
 # --- Load your covariate names (should match your model!) ---
-# e.g. from your previous script or saved .RData
-load("/Users/neo/Development/Data-Science/data-science/Data/data_out/RData/oc_covs_regression.RData")
+load(file.path(HomeDir, "Data/data_out/RData", paste0(soil_property, "_covs_regression.RData")))
 # Now cov_names is available
 
 # --- List and match raster files to covariate names ---
@@ -34,20 +39,25 @@ if (!all(names(cov_stack) == cov_names)) {
 }
 cat("Covariate stack ready!\n")
 
-# --- Load the trained random forest model for a given depth ---
+# --- Load the trained Cubist model for a given depth ---
 model <- readRDS(model_file)
+cat("Loaded model:", model_file, "\n")
 
-# --- Define a wrapper for ranger prediction ---
+# --- Define a wrapper for Cubist prediction ---
 predict_fun <- function(model, data, ...) {
-  predict(model, data = data)$predictions
+  predict(model, newdata = data)
 }
 
-# --- Predict SOC for all pixels in NSW ---
-cat("Predicting SOC map...\n")
+# --- Predict SOC for all pixels ---
+cat("Predicting", soil_property, "map for depth:", depth_name, "...\n")
 soc_pred <- terra::predict(cov_stack, model, fun = predict_fun, na.rm = TRUE, progress = "text")
+
+# --- Back-transform if model was trained on log scale ---
+# Uncomment the next line if use_log_transform = TRUE in training
+# soc_pred <- exp(soc_pred)
 
 # --- Save and plot the result ---
 writeRaster(soc_pred, output_tif, overwrite = TRUE)
-plot(soc_pred, main = "Predicted OC 0–5cm")
+plot(soc_pred, main = paste("Predicted", soil_property, depth_name))
 
 cat("Map saved to:", output_tif, "\n")

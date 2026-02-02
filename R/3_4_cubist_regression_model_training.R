@@ -1,512 +1,497 @@
 # =============================================================================
-# Cubist Regression Model Training for Digital Soil Mapping
-# =============================================================================
-# This script trains Cubist regression models for soil property prediction
-# Cubist is a rule-based regression model that combines decision trees with 
-# linear regression models at the terminal nodes
+# Cubist Regression Model Training for Digital Soil Mapping (WITH FULL LOGGING)
 # =============================================================================
 
-# --- Libraries and setup ---
 suppressPackageStartupMessages({
-  library(Cubist)      # Main Cubist package
-  library(caret)       # For model training framework
-  library(dplyr)       # Data manipulation
-  library(doParallel)  # Parallel processing
-  library(tibble)      # For rownames_to_column
+  library(Cubist)
+  library(caret)
+  library(dplyr)
+  library(doParallel)
+  library(tibble)
 })
 
-# Reproducibility
 set.seed(42)
 
 # =============================================================================
-# FILE PATHS - CENTRALIZED CONFIGURATION
+# PATHS
 # =============================================================================
 HomeDir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
 setwd(HomeDir)
 
-# INPUT: Change soil_property to match your data file
-soil_property <- "Phosphorus"  # Options: pH, OC, BD, CEC, EC, Clay, etc.
+soil_property <- "Organic_Carbon"
 
-# Input data paths
-data_input_path <- file.path(HomeDir, "Data/data_out/RData", 
-                             paste0(soil_property, "_covs_regression.RData"))
-soil_covariates_csv <- file.path(HomeDir, "Data/data_out/Soil_data_with_covariates",
-                                 paste0(soil_property, "_with_covariates_new.csv"))
+data_input_path <- file.path(
+  HomeDir, "Data/data_out/RData",
+  paste0(soil_property, "_covs_regression.RData")
+)
 
-# Output model directory name
+soil_covariates_csv <- file.path(
+  HomeDir, "Data/data_out/Soil_data_with_covariates",
+  paste0(soil_property, "_with_covariates_new.csv")
+)
+
 mod_type <- paste0("mod.cubist.", soil_property)
 
-# Output subdirectories
-dir_models <- file.path(HomeDir, mod_type, "models")
-dir_cv <- file.path(HomeDir, mod_type, "cv")
-dir_metrics <- file.path(HomeDir, mod_type, "metrics")
-dir_preds <- file.path(HomeDir, mod_type, "preds")
-dir_importance <- file.path(HomeDir, mod_type, "importance")
-dir_rules <- file.path(HomeDir, mod_type, "rules")
+dirs <- list(
+  models     = file.path(HomeDir, mod_type, "models"),
+  cv         = file.path(HomeDir, mod_type, "cv"),
+  metrics    = file.path(HomeDir, mod_type, "metrics"),
+  preds      = file.path(HomeDir, mod_type, "preds"),
+  importance = file.path(HomeDir, mod_type, "importance"),
+  rules      = file.path(HomeDir, mod_type, "rules"),
+  logs       = file.path(HomeDir, mod_type, "logs")
+)
 
-# Print configuration
-cat("\n", paste(rep("=", 70), collapse = ""), "\n", sep = "")
-cat("CUBIST MODEL TRAINING - CONFIGURATION\n")
-cat("Soil Property: ", soil_property, "\n", sep = "")
-cat("Input RData: ", basename(data_input_path), "\n", sep = "")
-cat("Output Directory: ", file.path(HomeDir, mod_type), "\n", sep = "")
-cat(paste(rep("=", 70), collapse = ""), "\n\n", sep = "")
+lapply(dirs, dir.create, recursive = TRUE, showWarnings = FALSE)
 
-# Optional helpers
-if (file.exists("R/3_3_func.R")) {
-  source("R/3_3_func.R")
-}
-
-# Create output directories
-for (dir in list(dir_models, dir_cv, dir_metrics, dir_preds, dir_importance, dir_rules)) {
-  dir.create(dir, recursive = TRUE, showWarnings = FALSE)
-}
-
-# --- Load your regression-ready data ---
-# Must provide df_conc (data frame) and cov_names (character vector of covariate names)
+# =============================================================================
+# LOAD DATA
+# =============================================================================
 load(data_input_path)
-
-# Sanity checks
 stopifnot(exists("df_conc"), exists("cov_names"))
-depth_cols <- c("X0.5cm", "X5.15cm", "X15.30cm", "X30.60cm", "X60.100cm", "X100.200cm")
-missing_depths <- setdiff(depth_cols, names(df_conc))
-if (length(missing_depths)) {
-  stop("These depth columns are missing in df_conc: ", paste(missing_depths, collapse = ", "))
-}
+
+depth_cols <- c("X0.5cm", "X5.15cm", "X15.30cm",
+                "X30.60cm", "X60.100cm", "X100.200cm")
 
 start_col <- which(names(df_conc) == depth_cols[1])
 end_col   <- which(names(df_conc) == depth_cols[length(depth_cols)])
-cat("start_col =", start_col, "end_col =", end_col, "\n")
 
-# --- Parallel setup ---
-n_cores <- max(1, parallel::detectCores() - 1)
-cl <- makePSOCKcluster(n_cores)
+# =============================================================================
+# PARALLEL
+# =============================================================================
+cl <- makePSOCKcluster(max(1, parallel::detectCores() - 1))
 registerDoParallel(cl)
-on.exit({
-  try(stopCluster(cl), silent = TRUE)
-  registerDoSEQ()
-}, add = TRUE)
-cat("Running on", n_cores, "cores\n")
+on.exit({ try(stopCluster(cl), silent = TRUE); registerDoSEQ() }, add = TRUE)
 
-# --- Controls / knobs ---
-fast_mode <- TRUE           # Set TRUE for faster training (reduced tuning grid)
-use_log_transform <- TRUE   # Set TRUE for log-transformed values (common for OC)
-use_spatial_cv <- FALSE     # Set FALSE for faster training (spatial CV is slow)
-add_interactions <- FALSE   # Set FALSE for faster training
+# =============================================================================
+# SETTINGS
+# =============================================================================
+use_log_transform <- TRUE
+cv_folds <- 10
+cv_repeats <- 3  # Repeated CV for more stable estimates
 
-# Cubist-specific parameters
-# committees: number of boosting iterations (like ensemble of rule-based models)
-# neighbors: number of nearest neighbors for prediction adjustment (0 = no adjustment)
-if (fast_mode) {
-  committees_values <- c(1, 10, 20)    # Reduced grid for speed
-  neighbors_values <- c(0, 5)           # Reduced grid for speed
-  cv_folds <- 5                         # Fewer folds
-} else {
-  committees_values <- c(1, 5, 10, 20, 50)
-  neighbors_values <- c(0, 3, 5, 9)
-  cv_folds <- 10
-}
+# Expanded tuning grid for better optimization
+committees_values <- c(1, 5, 10, 20, 50, 100)
+neighbors_values  <- c(0, 1, 3, 5, 7, 9)  # Added 1 and 7
 
-# Install spatial CV packages if needed
-if (use_spatial_cv) {
-  if (!requireNamespace("blockCV", quietly = TRUE)) {
-    install.packages("blockCV")
-  }
-  if (!requireNamespace("sf", quietly = TRUE)) {
-    install.packages("sf")
-  }
-  library(blockCV)
-  library(sf)
-}
+# Relaxed correlation cutoff (0.95 instead of 0.9) to keep more predictors
+correlation_cutoff <- 0.95
 
-# Standard CV control (used if spatial CV is disabled or as fallback)
-ctrl <- trainControl(
-  method = "cv",
-  number = cv_folds,        # CV folds (5 for fast mode, 10 otherwise)
-  allowParallel = TRUE,
-  savePredictions = "final"
-)
-
-# Cubist tuning grid
-# committees: like boosting, each subsequent model focuses on residuals
-# neighbors: applies instance-based correction using training data neighbors
-cubist_tuneGrid <- expand.grid(
+cubist_grid <- expand.grid(
   committees = committees_values,
-  neighbors = neighbors_values
+  neighbors  = neighbors_values
 )
 
-cat("Fast mode:", fast_mode, "\n")
-cat("Number of covariates:", length(cov_names), "\n")
-cat("Committees to tune:", paste(committees_values, collapse = ", "), "\n")
-cat("Neighbors to tune:", paste(neighbors_values, collapse = ", "), "\n")
-cat("CV folds:", cv_folds, "\n")
-cat("Using log-transformed data:", use_log_transform, "\n")
+# =============================================================================
+# HELPERS
+# =============================================================================
 
-# Select data based on log-transform option
-if (use_log_transform && exists("df_conc_log")) {
-  df_model <- df_conc_log
-  cat(">>> Using LOG-TRANSFORMED OC values\n")
-} else {
-  df_model <- df_conc
-  cat(">>> Using ORIGINAL OC values\n")
+log_line <- function(logfile, ...) {
+  msg <- paste0(..., collapse = "")
+  cat(msg, "\n")
+  cat(msg, "\n", file = logfile, append = TRUE)
 }
 
-# --- Feature Engineering: Add interaction terms ---
-if (add_interactions) {
-  cat("\n>>> Adding feature interactions...\n")
+# Cubist: variable usage (%) from a caret Cubist model (robust)
+get_cubist_usage_pct <- function(caret_model) {
+  u <- caret_model$finalModel$usage
+  if (is.null(u)) return(NULL)
   
-  # Check which covariates exist in the data
-  has_twi <- "Relief_TWI_3s" %in% cov_names
-  has_rf <- "Annual_Mean_RF_90m" %in% cov_names
-  has_temp <- "Annual_Max_Temp_90m" %in% cov_names
-  has_dem <- "Relief_Dems_3s_Mosaic" %in% cov_names
-  has_slope <- "Relief_Slope_Perc" %in% cov_names
-  
-  # TWI x Rainfall interaction (moisture accumulation potential)
-  if (has_twi && has_rf) {
-    df_model$TWI_x_Rainfall <- df_model$Relief_TWI_3s * df_model$Annual_Mean_RF_90m / 1000
-    cov_names <- c(cov_names, "TWI_x_Rainfall")
-    cat("  + Added TWI_x_Rainfall\n")
-  }
-  
-  # Elevation x Temperature interaction (climate gradient)
-  if (has_dem && has_temp) {
-    df_model$DEM_x_Temp <- df_model$Relief_Dems_3s_Mosaic * df_model$Annual_Max_Temp_90m / 1000
-    cov_names <- c(cov_names, "DEM_x_Temp")
-    cat("  + Added DEM_x_Temp\n")
-  }
-  
-  # Slope x Rainfall interaction (erosion potential)
-  if (has_slope && has_rf) {
-    df_model$Slope_x_Rainfall <- df_model$Relief_Slope_Perc * df_model$Annual_Mean_RF_90m / 1000
-    cov_names <- c(cov_names, "Slope_x_Rainfall")
-    cat("  + Added Slope_x_Rainfall\n")
-  }
-  
-  cat("Total covariates after feature engineering:", length(cov_names), "\n")
-}
-
-# --- Function to extract Cubist rules ---
-extract_cubist_rules <- function(model, depth_name, output_dir) {
-  tryCatch({
-    # Get the rules summary
-    rules_summary <- summary(model)
+  # Handle data.frame format (most common for Cubist)
+  if (is.data.frame(u)) {
+    # Get the first numeric column for usage values
+    num_cols <- names(u)[sapply(u, is.numeric)]
+    if (length(num_cols) == 0) return(NULL)
     
-    # Capture the printed output
-    rules_text <- capture.output(print(rules_summary))
+    # Prefer "Conditions" or "Model" column if available
+    use_col <- if ("Conditions" %in% num_cols) "Conditions" 
+               else if ("Model" %in% num_cols) "Model" 
+               else num_cols[1]
     
-    # Write rules to text file
-    writeLines(rules_text, 
-               file.path(output_dir, paste0("rules_", depth_name, ".txt")))
+    usage <- u[[use_col]]
     
-    cat("  ✓ Saved Cubist rules to text file\n")
-    return(TRUE)
-  }, error = function(e) {
-    cat("  ✗ Failed to extract rules:", conditionMessage(e), "\n")
-    return(FALSE)
-  })
-}
-
-# --- Function to get variable importance from Cubist ---
-get_cubist_importance <- function(model) {
-  tryCatch({
-    # Cubist provides usage statistics
-    usage <- varImp(model)
-    
-    if (!is.null(usage)) {
-      vi_df <- data.frame(
-        covariate = rownames(usage$importance),
-        importance = usage$importance$Overall
-      ) %>%
-        arrange(desc(importance))
-      return(vi_df)
+    # Get covariate names - check for "Variable" column first, then rownames
+    if ("Variable" %in% names(u)) {
+      cov_names <- as.character(u$Variable)
+    } else {
+      cov_names <- rownames(u)
     }
-    return(NULL)
-  }, error = function(e) {
-    return(NULL)
-  })
+    
+    if (is.null(cov_names) || length(cov_names) != length(usage)) {
+      cov_names <- paste0("Var_", seq_along(usage))
+    }
+    names(usage) <- cov_names
+    
+  } else if (is.matrix(u)) {
+    usage <- u[, 1]
+    cov_names <- rownames(u)
+    if (is.null(cov_names)) cov_names <- paste0("Var_", seq_along(usage))
+    names(usage) <- cov_names
+    usage <- as.numeric(usage)
+    
+  } else {
+    usage <- u
+    if (is.null(names(usage))) names(usage) <- paste0("Var_", seq_along(usage))
+  }
+  
+  # Filter to finite values
+
+  usage <- usage[is.finite(usage)]
+  if (length(usage) == 0) return(NULL)
+  
+  # Sort by usage
+
+  usage <- sort(usage, decreasing = TRUE)
+  
+  # Calculate percentage (handle zero sum case)
+  total <- sum(usage)
+  if (total == 0 || !is.finite(total)) {
+    pct <- rep(0, length(usage))
+  } else {
+    pct <- 100 * usage / total
+  }
+  
+  data.frame(
+    covariate = names(usage),
+    usage = as.numeric(usage),
+    pct = as.numeric(pct),
+    stringsAsFactors = FALSE
+  )
 }
 
 # =============================================================================
-# Training loop over depth columns
+# METRICS STORAGE
 # =============================================================================
 all_metrics <- list()
+top_cov_summary <- list()
 
+# =============================================================================
+# LOOP OVER DEPTHS
+# =============================================================================
 for (cc in seq(start_col, end_col)) {
-  depth_name <- names(df_model)[cc]
-  cat("\n==============================\n")
-  cat(">>> Working on", depth_name, "\n")
   
-  # --- Prepare data ---
-  df <- df_model %>%
+  depth_name <- names(df_conc)[cc]
+  logfile <- file.path(dirs$logs, paste0("log_", depth_name, ".txt"))
+  writeLines(character(0), con = logfile)
+  
+  log_line(logfile, "==============================")
+  log_line(logfile, ">>> Depth: ", depth_name)
+  log_line(logfile, "Timestamp: ", as.character(Sys.time()))
+  log_line(logfile, "use_log_transform: ", use_log_transform)
+  log_line(logfile, "cv_folds: ", cv_folds)
+  log_line(logfile, "Tune committees: ", paste(committees_values, collapse = ", "))
+  log_line(logfile, "Tune neighbors:  ", paste(neighbors_values, collapse = ", "))
+  
+  df_raw <- if (use_log_transform && exists("df_conc_log")) df_conc_log else df_conc
+  
+  df <- df_raw %>%
     dplyr::select(all_of(c(depth_name, cov_names))) %>%
-    filter(complete.cases(.)) %>%
-    filter(is.finite(.data[[depth_name]]))
+    filter(complete.cases(.), is.finite(.data[[depth_name]]))
   
-  n_all <- nrow(df)
-  cat("Records after cleaning:", n_all, "\n")
-  if (n_all < 50) {
-    cat("Skipping", depth_name, "- too few records for split/CV.\n")
+  log_line(logfile, "Records after cleaning: ", nrow(df))
+  
+  # Log target variable statistics for diagnostics
+  y_vals <- df[[depth_name]]
+  log_line(logfile, "Target stats: min=", round(min(y_vals), 4),
+           " | max=", round(max(y_vals), 4),
+           " | mean=", round(mean(y_vals), 4),
+           " | sd=", round(sd(y_vals), 4),
+           " | CV%=", round(100 * sd(y_vals) / abs(mean(y_vals)), 2))
+  
+  if (nrow(df) < 100) {
+    log_line(logfile, "Skipping — too few samples")
     next
   }
   
-  # --- 80/20 split ---
-  idx_train <- caret::createDataPartition(y = df[[depth_name]], p = 0.80, list = FALSE)
-  df_train  <- df[idx_train, , drop = FALSE]
-  df_test   <- df[-idx_train, , drop = FALSE]
-  cat("Train:", nrow(df_train), " Test:", nrow(df_test), "\n")
+  # --- Train / Test split
+  idx <- createDataPartition(df[[depth_name]], p = 0.8, list = FALSE)
+  train <- df[idx, , drop = FALSE]
+  test  <- df[-idx, , drop = FALSE]
+  log_line(logfile, "Train: ", nrow(train), " | Test: ", nrow(test))
   
-  # --- Set up cross-validation (spatial or random) ---
-  t0 <- Sys.time()
-  formulaString <- as.formula(paste0(depth_name, " ~ ", paste(cov_names, collapse = " + ")))
-  
-  if (use_spatial_cv) {
-    cat("  Setting up spatial block CV...\n")
-    tryCatch({
-      # Check if coordinates exist in df_model
-      if (all(c("Longitude", "Latitude") %in% names(df_model))) {
-        # Use coordinates from df_model directly (preferred method)
-        df_with_coords <- df_model %>%
-          dplyr::select(all_of(c(depth_name, cov_names, "Longitude", "Latitude"))) %>%
-          filter(complete.cases(.)) %>%
-          filter(is.finite(.data[[depth_name]]))
-        
-        train_coords <- df_with_coords[idx_train, c("Longitude", "Latitude")]
-      } else {
-        # Load from original CSV and match by row indices BEFORE filtering
-        orig_df <- read.csv(soil_covariates_csv)
-        
-        # Add coordinates to df_model first, then filter together
-        df_with_coords <- df_model
-        if (nrow(orig_df) == nrow(df_model)) {
-          df_with_coords$Longitude <- orig_df$Longitude
-          df_with_coords$Latitude <- orig_df$Latitude
-        } else {
-          stop("Row count mismatch between df_model and original CSV")
-        }
-        
-        # Filter with coordinates
-        df_with_coords <- df_with_coords %>%
-          dplyr::select(all_of(c(depth_name, cov_names, "Longitude", "Latitude"))) %>%
-          filter(complete.cases(.)) %>%
-          filter(is.finite(.data[[depth_name]]))
-        
-        train_coords <- df_with_coords[idx_train, c("Longitude", "Latitude")]
-      }
-      
-      # Verify row counts match
-      if (nrow(train_coords) != nrow(df_train)) {
-        stop(paste("Row mismatch: train_coords has", nrow(train_coords), 
-                   "rows but df_train has", nrow(df_train), "rows"))
-      }
-      
-      # Create sf object
-      train_sf <- st_as_sf(cbind(df_train, train_coords), 
-                           coords = c("Longitude", "Latitude"), 
-                           crs = 4326)
-      
-      # Create spatial blocks (~50km blocks for NSW scale)
-      sb <- cv_spatial(
-        x = train_sf,
-        k = cv_folds,
-        size = 50000,
-        selection = "random",
-        iteration = if (fast_mode) 10 else 50,
-        progress = FALSE
-      )
-      
-      # Convert to caret-compatible format
-      ctrl_spatial <- trainControl(
-        method = "cv",
-        number = cv_folds,
-        index = sb$folds_ids,
-        allowParallel = TRUE,
-        savePredictions = "final"
-      )
-      ctrl <- ctrl_spatial
-      cat("  ✓ Using spatial block CV (50km blocks)\n")
-    }, error = function(e) {
-      cat("  ✗ Spatial CV failed:", conditionMessage(e), "\n")
-      cat("  → Falling back to random CV\n")
-    })
+  # --- Adaptive CV: use fewer folds and repeats for small samples
+  n_train <- nrow(train)
+  if (n_train < 500) {
+    actual_folds <- 5
+    actual_repeats <- 5  # More repeats to compensate for fewer folds
+    log_line(logfile, "Small sample size - using 5-fold CV with 5 repeats")
+  } else if (n_train < 1000) {
+    actual_folds <- 5
+    actual_repeats <- 3
+    log_line(logfile, "Medium sample size - using 5-fold CV with 3 repeats")
+  } else {
+    actual_folds <- cv_folds
+    actual_repeats <- cv_repeats
   }
   
-  # --- Train Cubist model with tuning ---
-  cat("  Training Cubist regression model...\n")
-  t.cubist <- caret::train(
-    formulaString,
-    data = df_train,
+  ctrl <- trainControl(
+    method = "repeatedcv",
+    number = actual_folds,
+    repeats = actual_repeats,
+    allowParallel = TRUE,
+    savePredictions = "final"
+  )
+  
+  # --- Remove NZV predictors (per depth) + LOG NAMES
+  nzv <- nearZeroVar(train[, cov_names, drop = FALSE], saveMetrics = TRUE)
+  
+  cov_nzv_keep <- rownames(nzv)[!nzv$nzv]
+  cov_nzv_drop <- rownames(nzv)[nzv$nzv]
+  
+  log_line(logfile, "NZV kept (", length(cov_nzv_keep), "):")
+  log_line(logfile, paste(cov_nzv_keep, collapse = ", "))
+  
+  if (length(cov_nzv_drop) > 0) {
+    log_line(logfile, "NZV dropped (", length(cov_nzv_drop), "):")
+    log_line(logfile, paste(cov_nzv_drop, collapse = ", "))
+  } else {
+    log_line(logfile, "NZV dropped (0): none")
+  }
+  
+  # --- Split numeric vs categorical (LOG NAMES)
+  is_num <- sapply(train[, cov_nzv_keep, drop = FALSE], is.numeric)
+  
+  cov_num <- cov_nzv_keep[is_num]
+  cov_cat <- cov_nzv_keep[!is_num]
+  
+  log_line(logfile, "Numeric covariates (", length(cov_num), "):")
+  log_line(logfile, if (length(cov_num) > 0) paste(cov_num, collapse = ", ") else "none")
+  
+  log_line(logfile, "Categorical covariates (", length(cov_cat), "):")
+  log_line(logfile, if (length(cov_cat) > 0) paste(cov_cat, collapse = ", ") else "none")
+  
+  # --- Remove highly correlated predictors (NUMERIC ONLY) + LOG NAMES
+  # Using relaxed cutoff (0.95) to keep more predictors
+  cov_corr_drop <- character(0)
+  if (length(cov_num) >= 2) {
+    corr <- cor(train[, cov_num, drop = FALSE], use = "pairwise.complete.obs")
+    drop_idx <- findCorrelation(corr, cutoff = correlation_cutoff)
+    if (length(drop_idx) > 0) {
+      cov_corr_drop <- cov_num[drop_idx]
+      cov_num <- cov_num[-drop_idx]
+    }
+  }
+  
+  if (length(cov_corr_drop) > 0) {
+    log_line(logfile, "Correlation dropped (|r| > ", correlation_cutoff, ") (", length(cov_corr_drop), "):")
+    log_line(logfile, paste(cov_corr_drop, collapse = ", "))
+  } else {
+    log_line(logfile, "Correlation dropped (0): none")
+  }
+  
+  # --- Final covariates used in model
+  cov_use <- c(cov_num, cov_cat)
+  log_line(logfile, "FINAL covariates used (", length(cov_use), "):")
+  log_line(logfile, paste(cov_use, collapse = ", "))
+  
+  # --- Model formula
+  formula <- as.formula(
+    paste(depth_name, "~", paste(cov_use, collapse = " + "))
+  )
+  
+  # --- Train Cubist
+  log_line(logfile, "Training Cubist...")
+  t0 <- Sys.time()
+  
+  t.cubist <- train(
+    formula,
+    data = train,
     method = "cubist",
     trControl = ctrl,
-    tuneGrid = cubist_tuneGrid
+    tuneGrid = cubist_grid,
+    control = cubistControl(
+      extrapolation = 0.5,
+      unbiased = TRUE
+    )
   )
-  cat("CV done in", round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 1), "sec\n")
   
-  # Print best parameters
-  cat("  Best parameters: committees =", t.cubist$bestTune$committees, 
-      ", neighbors =", t.cubist$bestTune$neighbors, "\n")
+  log_line(logfile, "CV training time (sec): ",
+           round(as.numeric(difftime(Sys.time(), t0, units = "secs")), 1))
+  
+  bt <- t.cubist$bestTune
+  log_line(logfile, "BestTune: committees=", bt$committees, " | neighbors=", bt$neighbors)
   
   # Save CV grid + best tune
-  write.csv(t.cubist$results,
-            file = file.path(dir_cv, paste0("cv_grid_", depth_name, ".csv")),
-            row.names = FALSE)
-  saveRDS(t.cubist$bestTune,
-          file = file.path(dir_cv, paste0("bestTune_", depth_name, ".rds")))
+  write.csv(
+    t.cubist$results,
+    file.path(dirs$cv, paste0("cv_grid_", depth_name, ".csv")),
+    row.names = FALSE
+  )
+  saveRDS(
+    bt,
+    file.path(dirs$cv, paste0("bestTune_", depth_name, ".rds"))
+  )
   
-  # --- Evaluate on 20% hold-out ---
-  pred_test <- predict(t.cubist, newdata = df_test)
-  obs_test  <- df_test[[depth_name]]
-  
-  # Calculate metrics
-  RMSE <- sqrt(mean((pred_test - obs_test)^2))
-  MAE  <- mean(abs(pred_test - obs_test))
-  R2   <- {
-    cxy <- cov(pred_test, obs_test)
-    if (is.na(cxy) || sd(pred_test) == 0 || sd(obs_test) == 0) NA_real_ else cor(pred_test, obs_test)^2
+  # --- Variable usage (%) + log top covariate
+  usage_df <- get_cubist_usage_pct(t.cubist)
+  if (!is.null(usage_df) && nrow(usage_df) > 0) {
+    write.csv(
+      usage_df,
+      file.path(dirs$importance, paste0("usage_pct_", depth_name, ".csv")),
+      row.names = FALSE
+    )
+    
+    top1 <- usage_df[1, ]
+    log_line(logfile, "Top covariate (Cubist usage): ", top1$covariate,
+             " | ", round(top1$pct, 2), "%")
+    
+    top_cov_summary[[depth_name]] <- data.frame(
+      depth = depth_name,
+      top_covariate = top1$covariate,
+      pct = round(top1$pct, 2),
+      stringsAsFactors = FALSE
+    )
+    
+    log_line(logfile, "Top 10 covariates by usage (%):")
+    top10 <- utils::head(usage_df[, c("covariate", "pct")], 10)
+    cat(paste(capture.output(print(top10)), collapse = "\n"),
+        "\n", file = logfile, append = TRUE)
+    print(top10)
+  } else {
+    log_line(logfile, "No usage statistics available from Cubist model.")
   }
   
-  # Bias
-  bias <- mean(pred_test - obs_test)
+  # --- Test prediction
+  pred <- predict(t.cubist, newdata = test)
+  obs  <- test[[depth_name]]
   
-  # Lin's Concordance Correlation Coefficient (CCC)
-  CCC <- tryCatch({
-    mean_obs <- mean(obs_test)
-    mean_pred <- mean(pred_test)
-    var_obs <- var(obs_test)
-    var_pred <- var(pred_test)
-    cov_op <- cov(obs_test, pred_test)
-    2 * cov_op / (var_obs + var_pred + (mean_obs - mean_pred)^2)
-  }, error = function(e) NA_real_)
+  # --- Metrics (R²: SSE/TSS)
+  SSE <- sum((obs - pred)^2)
+  TSS <- sum((obs - mean(obs))^2)
+  
+  R2  <- 1 - SSE / TSS
+  RMSE <- sqrt(mean((obs - pred)^2))
+  MAE  <- mean(abs(obs - pred))
+  Bias <- mean(pred - obs)
+  
+  CCC <- 2 * cov(obs, pred) /
+    (var(obs) + var(pred) + (mean(obs) - mean(pred))^2)
+  
+  # --- Back-transform metrics (if trained in log scale)
+  if (use_log_transform) {
+    obs_bt  <- exp(obs)
+    pred_bt <- exp(pred)
+    R2_bt <- 1 - sum((obs_bt - pred_bt)^2) /
+      sum((obs_bt - mean(obs_bt))^2)
+  } else {
+    R2_bt <- NA_real_
+  }
   
   metrics <- data.frame(
-    depth      = depth_name,
-    n_train    = nrow(df_train),
-    n_test     = nrow(df_test),
-    committees = t.cubist$bestTune$committees,
-    neighbors  = t.cubist$bestTune$neighbors,
-    RMSE       = round(RMSE, 4),
-    MAE        = round(MAE, 4),
-    R2         = round(R2, 4),
-    Bias       = round(bias, 4),
-    CCC        = round(CCC, 4),
+    depth = depth_name,
+    n_train = nrow(train),
+    n_test  = nrow(test),
+    committees = bt$committees,
+    neighbors  = bt$neighbors,
+    RMSE = round(RMSE, 4),
+    MAE  = round(MAE, 4),
+    R2   = round(R2, 4),
+    R2_backtrans = round(R2_bt, 4),
+    Bias = round(Bias, 4),
+    CCC  = round(CCC, 4),
     stringsAsFactors = FALSE
   )
   
   all_metrics[[depth_name]] <- metrics
   
-  write.csv(metrics,
-            file = file.path(dir_metrics, paste0("metrics_", depth_name, ".csv")),
-            row.names = FALSE)
+  write.csv(
+    metrics,
+    file.path(dirs$metrics, paste0("metrics_", depth_name, ".csv")),
+    row.names = FALSE
+  )
   
-  cat("  Metrics: RMSE =", round(RMSE, 4), 
-      ", MAE =", round(MAE, 4), 
-      ", R² =", round(R2, 4), "\n")
-  
-  # Save test predictions (paired)
+  # Save test predictions
   preds_out <- data.frame(
-    depth    = depth_name,
-    observed = obs_test,
-    predicted = pred_test,
-    residual = obs_test - pred_test
+    depth = depth_name,
+    observed = obs,
+    predicted = pred,
+    residual = obs - pred,
+    stringsAsFactors = FALSE
   )
-  write.csv(preds_out,
-            file = file.path(dir_preds, paste0("pred_test_", depth_name, ".csv")),
-            row.names = FALSE)
   
-  # --- Final model trained on ALL data ---
-  cat("  Training final model on all data...\n")
-  bt <- t.cubist$bestTune
+  write.csv(
+    preds_out,
+    file.path(dirs$preds, paste0("pred_test_", depth_name, ".csv")),
+    row.names = FALSE
+  )
   
-  # Prepare x and y for cubist() function
-  x_all <- df[, cov_names, drop = FALSE]
-  y_all <- df[[depth_name]]
+  log_line(logfile, "Metrics: RMSE=", round(RMSE, 4),
+           " | MAE=", round(MAE, 4),
+           " | R2=", round(R2, 4),
+           " | R2_backtrans=", round(R2_bt, 4),
+           " | Bias=", round(Bias, 4),
+           " | CCC=", round(CCC, 4))
   
+  # --- Final model (neighbors properly applied)
   final_model <- cubist(
-    x = x_all,
-    y = y_all,
-    committees = bt$committees
+    x = df[, cov_use, drop = FALSE],
+    y = df[[depth_name]],
+    committees = bt$committees,
+    neighbors  = bt$neighbors
   )
   
-  # Apply neighbors correction if specified
-  if (bt$neighbors > 0) {
-    final_model$neighbors <- bt$neighbors
-    attr(final_model, "neighbors") <- bt$neighbors
-  }
+  saveRDS(
+    final_model,
+    file.path(dirs$models, paste0(depth_name, ".rds"))
+  )
   
-  # Save model
-  saveRDS(final_model,
-          file = file.path(dir_models, paste0(depth_name, ".rds")))
-  cat("  ✓ Saved model for", depth_name, "\n")
+  # Save caret model too (optional but useful)
+  saveRDS(
+    t.cubist,
+    file.path(dirs$models, paste0("caret_", depth_name, ".rds"))
+  )
   
-  # --- Extract and save Cubist rules ---
-  extract_cubist_rules(final_model, depth_name, dir_rules)
+  # Variable importance via caret (secondary)
+  vi <- varImp(t.cubist)$importance %>%
+    rownames_to_column("covariate") %>%
+    arrange(desc(Overall))
   
-  # --- Variable importance export ---
-  vi <- get_cubist_importance(t.cubist)
+  write.csv(
+    vi,
+    file.path(dirs$importance, paste0("importance_", depth_name, ".csv")),
+    row.names = FALSE
+  )
   
-  if (!is.null(vi)) {
-    write.csv(vi,
-              file = file.path(dir_importance, paste0("importance_", depth_name, ".csv")),
-              row.names = FALSE)
-    
-    # Print top 10 important variables
-    cat("  Top 10 important covariates:\n")
-    top10 <- head(vi, 10)
-    for (i in 1:nrow(top10)) {
-      cat("    ", i, ". ", top10$covariate[i], " (", round(top10$importance[i], 2), ")\n", sep = "")
-    }
-  }
+  log_line(logfile, "Saved model: ", file.path(dirs$models, paste0(depth_name, ".rds")))
+  log_line(logfile, "Saved usage%: ", file.path(dirs$importance, paste0("usage_pct_", depth_name, ".csv")))
+  log_line(logfile, "Saved metrics: ", file.path(dirs$metrics, paste0("metrics_", depth_name, ".csv")))
+  log_line(logfile, "Done depth: ", depth_name)
 }
 
 # =============================================================================
-# Summary of all models
+# SUMMARY
 # =============================================================================
-cat("\n==============================\n")
-cat(">>> SUMMARY OF ALL CUBIST MODELS\n")
-cat("==============================\n")
-
 if (length(all_metrics) > 0) {
   summary_df <- do.call(rbind, all_metrics)
   
-  cat("\nPerformance metrics across depths:\n")
+  write.csv(
+    summary_df,
+    file.path(dirs$metrics, "all_depths_metrics.csv"),
+    row.names = FALSE
+  )
+  
+  cat("\n==============================\n")
+  cat(">>> PERFORMANCE SUMMARY\n")
+  cat("==============================\n")
   print(summary_df)
-  
-  # Save combined metrics
-  write.csv(summary_df,
-            file = file.path(dir_metrics, "all_depths_metrics.csv"),
-            row.names = FALSE)
-  
-  cat("\nMean performance:\n")
-  cat("  Mean RMSE:", round(mean(summary_df$RMSE, na.rm = TRUE), 4), "\n")
-  cat("  Mean MAE:", round(mean(summary_df$MAE, na.rm = TRUE), 4), "\n")
-  cat("  Mean R²:", round(mean(summary_df$R2, na.rm = TRUE), 4), "\n")
-  cat("  Mean CCC:", round(mean(summary_df$CCC, na.rm = TRUE), 4), "\n")
+} else {
+  cat("\nNo depth models were trained (too few records?)\n")
 }
 
-cat("\n==============================\n")
-cat("All Cubist models trained successfully!\n")
-cat("Output directory:", file.path(HomeDir, mod_type), "\n")
-cat("==============================\n")
+# Top covariate summary across depths
+if (length(top_cov_summary) > 0) {
+  top_cov_df <- do.call(rbind, top_cov_summary)
+  
+  write.csv(
+    top_cov_df,
+    file.path(dirs$importance, "top_covariate_by_depth.csv"),
+    row.names = FALSE
+  )
+  
+  cat("\n==============================\n")
+  cat(">>> TOP COVARIATE BY DEPTH (Cubist usage %)\n")
+  cat("==============================\n")
+  print(top_cov_df)
+}
 
-# =============================================================================
-# Cubist Model Prediction Function (for use in mapping)
-# =============================================================================
-# Usage example for prediction:
-# 
-# # Load the trained model
-# model <- readRDS("mod.cubist.OC/models/X0.5cm.rds")
-# 
-# # Load covariate raster stack
-# covariates <- terra::rast("path/to/covariates.tif")
-# 
-# # Predict using the model
-# # Note: Cubist with neighbors requires training data for prediction
-# prediction <- predict(covariates, model, 
-#                       neighbors = model$neighbors,
-#                       na.rm = TRUE)
-# 
-# # If using log-transformed model, back-transform
-# if (use_log_transform) {
-#   prediction <- exp(prediction)
-# }
-# =============================================================================
+cat("\n✓ Cubist modelling completed successfully\n")
