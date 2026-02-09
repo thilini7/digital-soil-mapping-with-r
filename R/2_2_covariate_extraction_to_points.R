@@ -15,7 +15,7 @@ setwd(HomeDir)
 soil_property <- "Phosphorus"  # Options: pH, OC, BD, CEC, EC, Clay, etc.
 
 # Input paths
-cov_path <- file.path(HomeDir, "Data", "data_in", "soil_covariates_aligned")
+cov_path <- file.path(HomeDir, "Data", "data_in", "soil_covariates_aligned_v2")
 soil_points_csv <- file.path(HomeDir, "Data", "data_out", "splined_data", soil_property,
                              paste0(soil_property, "_splined_NSW_1991_2020_Data.csv"))
 

@@ -17,7 +17,7 @@ base_dir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
 
 nsw_shapefile <- file.path(base_dir, "Data/data_in/shp_files/NSW/NSWLanduse2017_Ver1_5_20230921.shp")
 act_shapefile <- file.path(base_dir, "Data/data_in/shp_files/ACT/ACT_landuse_final_2012.shp")
-merged_output <- file.path(base_dir, "Data/data_in/shp_files/NSW_ACT_Landuse_merged.shp")
+merged_output <- file.path(base_dir, "Data/data_in/shp_files/NSW_ACT_Landuse_merged_new.shp")
 
 # Check which files exist
 nsw_exists <- file.exists(nsw_shapefile)
@@ -37,12 +37,12 @@ if (!nsw_exists && !act_exists) {
 # 2. Define LDI mapping for NSW Secondary classification
 # =============================================================================
 # LDI Classification (Gray et al., 2015):
-# - LDI 1: No effective disturbance (e.g., national park, nature reserve)
-# - LDI 2: Limited disturbance, minor native vegetation clearing (e.g., selective logging, production forestry)
-# - LDI 3: Moderate disturbance, moderate native vegetation clearing, light grazing in woodland, hardwood plantation
-# - LDI 4: High disturbance, complete native vegetation clearing (e.g., native and improved pasture, softwood plantation)
-# - LDI 5: Very high disturbance (e.g., improved pasture with moderate cropping, orchards, viticulture)
-# - LDI 6: Extreme disturbance, predominant cropping (rain-fed or irrigated)
+# - LDI 1: No effective disturbance (e.g., nature reserve)
+# - LDI 2: Limited disturbance (e.g., light native forestry)
+# - LDI 3: Moderate disturbance (e.g., woodland grazing) - grazing with retained native woodland
+# - LDI 4: High disturbance (e.g., grazing on pasture) - cleared native vegetation for pasture
+# - LDI 5: Very high disturbance (e.g., cropping/grazing, horticulture)
+# - LDI 6: Extreme disturbance (e.g., cropping)
 
 create_ldi_mapping_nsw <- function() {
   ldi_map <- data.frame(
@@ -55,11 +55,11 @@ create_ldi_mapping_nsw <- function() {
       # LDI 2: Limited disturbance - Production forestry (selective logging)
       "2.2.0 Production native forestry",
       
-      # LDI 3: Moderate disturbance - Light grazing in woodland, hardwood plantation
+      # LDI 3: Moderate disturbance - Woodland grazing (native vegetation retained)
       "2.1.0 Grazing native vegetation",
-      "3.1.0 Plantation forests",  # Hardwood plantations
       
-      # LDI 4: High disturbance - Native/improved pasture, softwood plantation
+      # LDI 4: High disturbance - Grazing on pasture (native vegetation cleared), plantations
+      "3.1.0 Plantation forests",
       "3.2.0 Grazing modified pastures",
       "3.6.0 Land in transition",
       "4.6.0 Irrigated land in transition",
@@ -98,10 +98,10 @@ create_ldi_mapping_nsw <- function() {
       1, 1, 1,
       # LDI 2: Production forestry
       2,
-      # LDI 3: Light grazing, hardwood plantation
-      3, 3,
-      # LDI 4: Modified pastures
-      4, 4, 4,
+      # LDI 3: Woodland grazing
+      3,
+      # LDI 4: Grazing on pasture, plantations
+      4, 4, 4, 4,
       # LDI 5: Horticulture, orchards
       5, 5, 5, 5, 5, 5, 5,
       # LDI 6: Cropping, urban/industrial
@@ -129,11 +129,11 @@ create_ldi_mapping_act <- function() {
       # LDI 2: Limited disturbance - Production forestry
       "2.2 Production native forestry",
       
-      # LDI 3: Moderate disturbance - Light grazing, hardwood plantation
+      # LDI 3: Moderate disturbance - Woodland grazing (native vegetation retained)
       "2.1 Grazing native vegetation",
-      "3.1 Plantation forestry",
       
-      # LDI 4: High disturbance - Modified pastures
+      # LDI 4: High disturbance - Grazing on pasture (native vegetation cleared), plantations
+      "3.1 Plantation forestry",
       "3.2 Grazing modified pastures",
       "3.6 Land in transition",
       "4.6 Irrigated land in transition",
@@ -172,10 +172,10 @@ create_ldi_mapping_act <- function() {
       1, 1, 1,
       # LDI 2
       2,
-      # LDI 3
-      3, 3,
-      # LDI 4
-      4, 4, 4,
+      # LDI 3: Woodland grazing
+      3,
+      # LDI 4: Grazing on pasture, plantations
+      4, 4, 4, 4,
       # LDI 5
       5, 5, 5, 5, 5, 5, 5,
       # LDI 6
@@ -222,16 +222,16 @@ calculate_ldi_from_code <- function(secondary_code) {
     # 1.x: Conservation -> LDI 1
     grepl("^1\\.", code_num) ~ 1L,
     
-    # 2.1: Grazing native vegetation -> LDI 3
+    # 2.1: Grazing native vegetation (woodland grazing) -> LDI 3
     grepl("^2\\.1", code_num) ~ 3L,
     # 2.2: Production forestry -> LDI 2
     grepl("^2\\.2", code_num) ~ 2L,
     # 2.x other -> LDI 2
     grepl("^2\\.", code_num) ~ 2L,
     
-    # 3.1: Plantation -> LDI 3 (hardwood)
-    grepl("^3\\.1", code_num) ~ 3L,
-    # 3.2: Modified pastures -> LDI 4
+    # 3.1: Plantation -> LDI 4 (native vegetation cleared)
+    grepl("^3\\.1", code_num) ~ 4L,
+    # 3.2: Modified pastures (grazing on pasture) -> LDI 4
     grepl("^3\\.2", code_num) ~ 4L,
     # 3.3: Cropping -> LDI 6
     grepl("^3\\.3", code_num) ~ 6L,

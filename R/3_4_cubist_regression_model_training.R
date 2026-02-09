@@ -16,9 +16,10 @@ set.seed(42)
 # PATHS
 # =============================================================================
 HomeDir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
+ModelsDir <- file.path(HomeDir, "Models")
 setwd(HomeDir)
 
-soil_property <- "Organic_Carbon"
+soil_property <- "Phosphorus"
 
 data_input_path <- file.path(
   HomeDir, "Data/data_out/RData",
@@ -33,13 +34,13 @@ soil_covariates_csv <- file.path(
 mod_type <- paste0("mod.cubist.", soil_property)
 
 dirs <- list(
-  models     = file.path(HomeDir, mod_type, "models"),
-  cv         = file.path(HomeDir, mod_type, "cv"),
-  metrics    = file.path(HomeDir, mod_type, "metrics"),
-  preds      = file.path(HomeDir, mod_type, "preds"),
-  importance = file.path(HomeDir, mod_type, "importance"),
-  rules      = file.path(HomeDir, mod_type, "rules"),
-  logs       = file.path(HomeDir, mod_type, "logs")
+  models     = file.path(ModelsDir, mod_type, "models"),
+  cv         = file.path(ModelsDir, mod_type, "cv"),
+  metrics    = file.path(ModelsDir, mod_type, "metrics"),
+  preds      = file.path(ModelsDir, mod_type, "preds"),
+  importance = file.path(ModelsDir, mod_type, "importance"),
+  rules      = file.path(ModelsDir, mod_type, "rules"),
+  logs       = file.path(ModelsDir, mod_type, "logs")
 )
 
 lapply(dirs, dir.create, recursive = TRUE, showWarnings = FALSE)
@@ -59,20 +60,23 @@ end_col   <- which(names(df_conc) == depth_cols[length(depth_cols)])
 # =============================================================================
 # PARALLEL
 # =============================================================================
-cl <- makePSOCKcluster(max(1, parallel::detectCores() - 1))
+# MEMORY FIX: Limit cores to reduce memory duplication across workers
+n_cores <- min(4, max(1, parallel::detectCores() - 2))  # Cap at 4 cores
+cl <- makePSOCKcluster(n_cores)
 registerDoParallel(cl)
 on.exit({ try(stopCluster(cl), silent = TRUE); registerDoSEQ() }, add = TRUE)
+cat("Running on", n_cores, "cores (limited to save memory)\n")
 
 # =============================================================================
 # SETTINGS
 # =============================================================================
 use_log_transform <- TRUE
-cv_folds <- 10
-cv_repeats <- 3  # Repeated CV for more stable estimates
+cv_folds <- 10      # 10-fold CV for stable estimates
+cv_repeats <- 2     # MEMORY FIX: Reduced from 3
 
-# Expanded tuning grid for better optimization
-committees_values <- c(1, 5, 10, 20, 50, 100)
-neighbors_values  <- c(0, 1, 3, 5, 7, 9)  # Added 1 and 7
+# MEMORY FIX: Reduced tuning grid (36 -> 15 combinations)
+committees_values <- c(1, 10, 50, 100)      # Reduced from 6 to 4 values
+neighbors_values  <- c(0, 3, 5, 9)          # Reduced from 6 to 4 values
 
 # Relaxed correlation cutoff (0.95 instead of 0.9) to keep more predictors
 correlation_cutoff <- 0.95
@@ -210,15 +214,16 @@ for (cc in seq(start_col, end_col)) {
   log_line(logfile, "Train: ", nrow(train), " | Test: ", nrow(test))
   
   # --- Adaptive CV: use fewer folds and repeats for small samples
+  # MEMORY FIX: Reduced repeats throughout
   n_train <- nrow(train)
   if (n_train < 500) {
     actual_folds <- 5
-    actual_repeats <- 5  # More repeats to compensate for fewer folds
-    log_line(logfile, "Small sample size - using 5-fold CV with 5 repeats")
+    actual_repeats <- 2  # MEMORY FIX: Reduced from 5
+    log_line(logfile, "Small sample size - using 5-fold CV with 2 repeats")
   } else if (n_train < 1000) {
     actual_folds <- 5
-    actual_repeats <- 3
-    log_line(logfile, "Medium sample size - using 5-fold CV with 3 repeats")
+    actual_repeats <- 2  # MEMORY FIX: Reduced from 3
+    log_line(logfile, "Medium sample size - using 5-fold CV with 2 repeats")
   } else {
     actual_folds <- cv_folds
     actual_repeats <- cv_repeats
@@ -229,7 +234,7 @@ for (cc in seq(start_col, end_col)) {
     number = actual_folds,
     repeats = actual_repeats,
     allowParallel = TRUE,
-    savePredictions = "final"
+    savePredictions = "none"  # MEMORY FIX: Don't store CV predictions
   )
   
   # --- Remove NZV predictors (per depth) + LOG NAMES
@@ -456,6 +461,12 @@ for (cc in seq(start_col, end_col)) {
   log_line(logfile, "Saved usage%: ", file.path(dirs$importance, paste0("usage_pct_", depth_name, ".csv")))
   log_line(logfile, "Saved metrics: ", file.path(dirs$metrics, paste0("metrics_", depth_name, ".csv")))
   log_line(logfile, "Done depth: ", depth_name)
+  
+  # MEMORY FIX: Clean up after each iteration
+  rm(t.cubist, train, test, df, final_model, pred, obs)
+  if (exists("usage_df")) rm(usage_df)
+  if (exists("vi")) rm(vi)
+  gc(verbose = FALSE)
 }
 
 # =============================================================================
