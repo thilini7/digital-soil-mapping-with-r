@@ -8,6 +8,10 @@ depth_name   <- "X0.5cm"
 TilesDir     <- file.path(ModelsDir, paste0("mod.cubist.", soil_property), "preds", paste0("tiles_", depth_name))
 output_tif   <- file.path(ModelsDir, paste0("mod.cubist.", soil_property), "preds", paste0(soil_property, "_pred_", depth_name, ".tif"))
 
+# Ensure output directory exists
+output_dir <- dirname(output_tif)
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
 # --- 1. Find the Tile Files Directly ---
 # We look for the tiles again to ensure we have the correct, absolute paths
 tile_files <- list.files(TilesDir, pattern = "\\.tif$", full.names = TRUE)
