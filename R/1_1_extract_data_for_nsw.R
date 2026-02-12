@@ -18,7 +18,11 @@ setwd(HomeDir)
 # FILE PATHS - CENTRALIZED CONFIGURATION
 # =============================================================================
 # INPUT: Change soil_property to match your data
-soil_property <- "Organic_Carbon"  # Options: pH, OC, BD, CEC, EC, Clay, etc.
+soil_property <- "CEC"  # Options: pH, OC, BD, CEC, EC, Clay, etc.
+
+# FILTER: Filter values change this bases on soil_property
+lower_filter_val <- 0.1
+upper_filter_val <- 60
 
 # Input data path
 data_in_dir <- file.path(HomeDir, "Data", "data_out", "lab_method_extracts")
@@ -126,7 +130,7 @@ cat("After conversion, LowerDepth min/max:", min(df$LowerDepth), max(df$LowerDep
 
 # Remove impossible/outlier depths and values (after conversion)
 df <- df[df$UpperDepth >= 0 & df$LowerDepth > 0 & df$LowerDepth <= 200, ]
-df <- df[df$Value >= 0.4 & df$Value < 10, ]
+df <- df[df$Value >= lower_filter_val & df$Value < upper_filter_val, ]
 
 # ---- Fix reversed/zero-thickness horizons ----
 reversed <- df$LowerDepth <= df$UpperDepth
