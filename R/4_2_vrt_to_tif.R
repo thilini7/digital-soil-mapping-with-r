@@ -8,6 +8,11 @@ depth_name   <- "X0.5cm"
 TilesDir     <- file.path(ModelsDir, paste0("mod.cubist.", soil_property), "preds", paste0("tiles_", depth_name))
 output_tif   <- file.path(ModelsDir, paste0("mod.cubist.", soil_property), "preds", paste0(soil_property, "_pred_", depth_name, ".tif"))
 
+# Clamping: Set min/max bounds to prevent unrealistic extrapolation
+# Adjust these values based on the soil property and expected realistic range
+clamp_min <- 0       # Minimum expected value (e.g., CEC can't be negative)
+clamp_max <- 100     # Maximum expected value (adjust based on training data range)
+
 # Ensure output directory exists
 output_dir <- dirname(output_tif)
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
@@ -27,10 +32,14 @@ if (length(tile_files) == 0) {
 # This creates a VRT object 'live' so links are guaranteed to be correct
 v_live <- vrt(tile_files)
 
-# --- 3. Write to Final TIF ---
+# --- 3. Apply Clamping ---
+cat("Applying clamping (min:", clamp_min, ", max:", clamp_max, ")...\n")
+v_clamped <- clamp(v_live, lower = clamp_min, upper = clamp_max)
+
+# --- 4. Write to Final TIF ---
 cat("Converting to GeoTIFF (This may take a few minutes)...\n")
 writeRaster(
-  v_live, 
+  v_clamped, 
   output_tif, 
   overwrite = TRUE,
   datatype = "FLT4S",  
