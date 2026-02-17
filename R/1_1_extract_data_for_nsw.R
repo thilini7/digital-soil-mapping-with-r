@@ -18,17 +18,13 @@ setwd(HomeDir)
 # FILE PATHS - CENTRALIZED CONFIGURATION
 # =============================================================================
 # INPUT: Change soil_property to match your data
-soil_property <- "CEC"  # Options: pH, OC, BD, CEC, EC, Clay, etc.
-
-# FILTER: Filter values change this bases on soil_property
-lower_filter_val <- 0.1
-upper_filter_val <- 60
+soil_property <- "pH"  #Options: Organic_Carbon, Nitrogen, Phosphorus, pH, Bulk_Density, CEC, EC, Clay, Sum_of_Bases etc.
 
 # Input data path
 data_in_dir <- file.path(HomeDir, "Data", "data_out", "lab_method_extracts")
 
 # Output data paths
-data_out_dir <- file.path(HomeDir, "Data", "data_out", "splined_data", soil_property)
+data_out_dir <- file.path(HomeDir, "Data", "data_out", "splined_data_v2", soil_property)
 data_output_filter_prefix <- file.path(data_out_dir, paste0(soil_property, "_filter_NSW"))
 data_output_splined_prefix <- file.path(data_out_dir, paste0(soil_property, "_splined_NSW"))
 
@@ -130,7 +126,6 @@ cat("After conversion, LowerDepth min/max:", min(df$LowerDepth), max(df$LowerDep
 
 # Remove impossible/outlier depths and values (after conversion)
 df <- df[df$UpperDepth >= 0 & df$LowerDepth > 0 & df$LowerDepth <= 200, ]
-df <- df[df$Value >= lower_filter_val & df$Value < upper_filter_val, ]
 
 # ---- Fix reversed/zero-thickness horizons ----
 reversed <- df$LowerDepth <= df$UpperDepth
@@ -178,7 +173,7 @@ if (nrow(df) > 0) {
 }
 
 # ---- Run equal-area spline ----
-gsm.depths <- c(0, 5, 15, 30, 60, 100, 200)
+gsm.depths <- c(0, 30, 60, 100, 200)
 eaFit <- ea_spline(
   df[, c("Location_ID", "UpperDepth", "LowerDepth", "Value")],
   var.name = "Value",

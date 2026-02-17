@@ -2,16 +2,16 @@ library(terra)
 
 # --- Configuration ---
 HomeDir      <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
-ModelsDir    <- file.path(HomeDir, "Models")
-soil_property <- "CEC"
-depth_name   <- "X0.5cm"
+ModelsDir    <- file.path(HomeDir, "Models_v2")
+soil_property <- "Organic_Carbon"
+depth_name   <- "X0.30cm"
 TilesDir     <- file.path(ModelsDir, paste0("mod.cubist.", soil_property), "preds", paste0("tiles_", depth_name))
 output_tif   <- file.path(ModelsDir, paste0("mod.cubist.", soil_property), "preds", paste0(soil_property, "_pred_", depth_name, ".tif"))
 
 # Clamping: Set min/max bounds to prevent unrealistic extrapolation
 # Adjust these values based on the soil property and expected realistic range
-clamp_min <- 0       # Minimum expected value (e.g., CEC can't be negative)
-clamp_max <- 100     # Maximum expected value (adjust based on training data range)
+clamp_min <- 0.1     # Minimum expected value (e.g., CEC can't be negative)
+clamp_max <- 12   # Maximum expected value (adjust based on training data range)
 
 # Ensure output directory exists
 output_dir <- dirname(output_tif)

@@ -9,10 +9,10 @@ library(caret)
 
 # --- 1. CONFIGURATION ---
 HomeDir       <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
-ModelsDir     <- file.path(HomeDir, "Models")
+ModelsDir     <- file.path(HomeDir, "Models_v2")
 CovariatesDir <- file.path(HomeDir, "Data/data_in/soil_covariates_aligned_v2")
-soil_property <- "CEC"
-depth_name    <- "X0.5cm"
+soil_property <- "Organic_Carbon"
+depth_name    <- "X0.30cm"
 model_file    <- file.path(ModelsDir, paste0("mod.cubist.", soil_property), "models", paste0(depth_name, ".rds"))
 
 # Back-transformation setting: Set to TRUE if model was trained on log1p-transformed data

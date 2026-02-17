@@ -16,18 +16,27 @@ set.seed(42)
 # PATHS
 # =============================================================================
 HomeDir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
-ModelsDir <- file.path(HomeDir, "Models")
+ModelsDir <- file.path(HomeDir, "Models_v2")
 setwd(HomeDir)
 
-soil_property <- "Phosphorus"
+soil_property <- "pH"  #Options: Organic_Carbon, Nitrogen, Phosphorus, pH, Bulk_Density, CEC, EC, Clay, Sum_of_Bases etc.
+
+# =============================================================================
+# SETTINGS
+# =============================================================================
+# Set FALSE for: pH (already on log scale), Bulk_Density, Clay (bounded/non-skewed)
+# Set TRUE for:  Organic_Carbon, Nitrogen, Phosphorus, CEC, EC, Sum_of_Bases (right-skewed concentrations)
+use_log_transform <- FALSE
+cv_folds <- 10      # 10-fold CV for stable estimates
+cv_repeats <- 2     # MEMORY FIX: Reduced from 3
 
 data_input_path <- file.path(
-  HomeDir, "Data/data_out/RData",
+  HomeDir, "Data/data_out/RData_v2",
   paste0(soil_property, "_covs_regression.RData")
 )
 
 soil_covariates_csv <- file.path(
-  HomeDir, "Data/data_out/Soil_data_with_covariates",
+  HomeDir, "Data/data_out/Soil_data_with_covariates_v2",
   paste0(soil_property, "_with_covariates_new.csv")
 )
 
@@ -51,8 +60,7 @@ lapply(dirs, dir.create, recursive = TRUE, showWarnings = FALSE)
 load(data_input_path)
 stopifnot(exists("df_conc"), exists("cov_names"))
 
-depth_cols <- c("X0.5cm", "X5.15cm", "X15.30cm",
-                "X30.60cm", "X60.100cm", "X100.200cm")
+depth_cols <- c("X0.30cm", "X30.60cm", "X60.100cm", "X100.200cm")
 
 start_col <- which(names(df_conc) == depth_cols[1])
 end_col   <- which(names(df_conc) == depth_cols[length(depth_cols)])
@@ -67,12 +75,6 @@ registerDoParallel(cl)
 on.exit({ try(stopCluster(cl), silent = TRUE); registerDoSEQ() }, add = TRUE)
 cat("Running on", n_cores, "cores (limited to save memory)\n")
 
-# =============================================================================
-# SETTINGS
-# =============================================================================
-use_log_transform <- TRUE
-cv_folds <- 10      # 10-fold CV for stable estimates
-cv_repeats <- 2     # MEMORY FIX: Reduced from 3
 
 # MEMORY FIX: Reduced tuning grid (36 -> 15 combinations)
 committees_values <- c(1, 10, 50, 100)      # Reduced from 6 to 4 values
