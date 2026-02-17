@@ -17,6 +17,8 @@ model_file    <- file.path(ModelsDir, paste0("mod.cubist.", soil_property), "mod
 
 # Back-transformation setting: Set to TRUE if model was trained on log1p-transformed data
 # (check 3_4_cubist_regression_model_training.R -> use_log_transform setting)
+# Set FALSE for: pH (already on log scale), Bulk_Density, Clay (bounded/non-skewed)
+# Set TRUE for:  Organic_Carbon, Nitrogen, Phosphorus, CEC, EC, Sum_of_Bases (right-skewed concentrations)
 use_log_transform <- TRUE  # Set to FALSE for properties like pH where log may not be appropriate
 
 # Output folder for tiles
