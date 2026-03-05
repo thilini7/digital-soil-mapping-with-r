@@ -19,7 +19,7 @@ HomeDir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
 setwd(HomeDir)
 
 # INPUT: Soil property data file
-soil_property <- "pH"  #Options: Organic_Carbon, Nitrogen, Phosphorus, pH, Bulk_Density, CEC, EC, Clay, Sum_of_Bases etc.
+soil_property <- "EC"  #Options: Organic_Carbon, Nitrogen, Phosphorus, pH, Bulk_Density, CEC, EC, Clay, Sum_of_Bases etc.
 
 # =============================================================================
 # PROPERTY-SPECIFIC PERCENTILE SETTINGS
@@ -38,7 +38,15 @@ percentile_settings <- list(
 )
 
 # Get percentiles for current property (default P1-P99 if not specified)
-if (soil_property %in% names(percentile_settings)) {
+use_raw_range <- FALSE
+if (soil_property == "EC") {
+  # EC uses fixed raw value range (dS/m) instead of percentiles
+  # because EC is extremely skewed with a long tail
+  lower_raw <- 0.1    # Minimum valid EC (dS/m)
+  upper_raw <- 15    # Maximum valid EC (dS/m)
+  use_raw_range <- TRUE
+  cat("Note: EC uses fixed range [", lower_raw, "-", upper_raw, "] dS/m instead of percentiles\n")
+} else if (soil_property %in% names(percentile_settings)) {
   lower_pct <- percentile_settings[[soil_property]]["lower"]
   upper_pct <- percentile_settings[[soil_property]]["upper"]
 } else {
@@ -59,7 +67,11 @@ cat("\n", paste(rep("=", 70), collapse = ""), "\n", sep = "")
 cat("SOIL PROPERTY RANGE ANALYSIS\n")
 cat("Property: ", soil_property, "\n", sep = "")
 cat("Input file: ", basename(file_path), "\n", sep = "")
-cat("Percentile range: P", lower_pct*100, "-P", upper_pct*100, "\n", sep = "")
+if (use_raw_range) {
+  cat("Fixed range: ", lower_raw, " - ", upper_raw, " (raw values)\n", sep = "")
+} else {
+  cat("Percentile range: P", lower_pct*100, "-P", upper_pct*100, "\n", sep = "")
+}
 cat(paste(rep("=", 70), collapse = ""), "\n\n", sep = "")
 
 # =============================================================================
@@ -112,12 +124,12 @@ prop_stats <- prop_long %>%
     n_missing = sum(is.na(value)),
     n_used    = sum(!is.na(value)),
     min       = suppressWarnings(min(value, na.rm = TRUE)),
-    q_lower   = suppressWarnings(quantile(value, lower_pct, na.rm = TRUE, names = FALSE)),
+    q_lower   = if (use_raw_range) lower_raw else suppressWarnings(quantile(value, lower_pct, na.rm = TRUE, names = FALSE)),
     q05       = suppressWarnings(quantile(value, 0.05, na.rm = TRUE, names = FALSE)),
     median    = suppressWarnings(median(value, na.rm = TRUE)),
     mean      = suppressWarnings(mean(value, na.rm = TRUE)),
     q95       = suppressWarnings(quantile(value, 0.95, na.rm = TRUE, names = FALSE)),
-    q_upper   = suppressWarnings(quantile(value, upper_pct, na.rm = TRUE, names = FALSE)),
+    q_upper   = if (use_raw_range) upper_raw else suppressWarnings(quantile(value, upper_pct, na.rm = TRUE, names = FALSE)),
     max       = suppressWarnings(max(value, na.rm = TRUE)),
     skewness  = suppressWarnings(e1071::skewness(value, na.rm = TRUE, type = 2)),
     .groups = "drop"
@@ -127,8 +139,8 @@ prop_stats <- prop_long %>%
     prop_long %>%
       group_by(depth) %>%
       summarise(
-        q_lower = quantile(value, lower_pct, na.rm = TRUE, names = FALSE),
-        q_upper = quantile(value, upper_pct, na.rm = TRUE, names = FALSE),
+        q_lower = if (use_raw_range) lower_raw else quantile(value, lower_pct, na.rm = TRUE, names = FALSE),
+        q_upper = if (use_raw_range) upper_raw else quantile(value, upper_pct, na.rm = TRUE, names = FALSE),
         n_used = sum(!is.na(value)),
         n_capped = sum(!is.na(value) & (value < q_lower | value > q_upper)),
         pct_capped = 100 * n_capped / n_used,
@@ -155,7 +167,11 @@ best_range <- prop_stats %>%
 best_range$P1[best_range$P1 == 0] <- 0.01
 
 cat("\n", paste(rep("=", 70), collapse = ""), "\n", sep = "")
-cat("RECOMMENDED", soil_property, "TRAINING RANGE (P", lower_pct*100, "-P", upper_pct*100, ")\n", sep = " ")
+if (use_raw_range) {
+  cat("RECOMMENDED", soil_property, "TRAINING RANGE (fixed:", lower_raw, "-", upper_raw, "dS/m)\n")
+} else {
+  cat("RECOMMENDED", soil_property, "TRAINING RANGE (P", lower_pct*100, "-P", upper_pct*100, ")\n", sep = " ")
+}
 cat(paste(rep("=", 70), collapse = ""), "\n\n", sep = "")
 print(as.data.frame(best_range))
 
@@ -171,9 +187,15 @@ cat("\n", paste(rep("=", 70), collapse = ""), "\n", sep = "")
 cat("CODE SNIPPET FOR 3_1_soil_r_data.R (copy-paste ready)\n")
 cat(paste(rep("=", 70), collapse = ""), "\n\n", sep = "")
 
-cat(sprintf('# Apply valid range filters for %s (P%g-P%g percentiles)\n', soil_property, lower_pct*100, upper_pct*100))
-cat(sprintf('if (soil_property == "%s") {\n', soil_property))
-cat(sprintf('  cat("Applying %s range filters (P%g-P%g)...\\n")\n', soil_property, lower_pct*100, upper_pct*100))
+if (use_raw_range) {
+  cat(sprintf('# Apply valid range filters for %s (fixed range: %g - %g dS/m)\n', soil_property, lower_raw, upper_raw))
+  cat(sprintf('if (soil_property == "%s") {\n', soil_property))
+  cat(sprintf('  cat("Applying %s fixed range filters [%g - %g dS/m]...\\n")\n', soil_property, lower_raw, upper_raw))
+} else {
+  cat(sprintf('# Apply valid range filters for %s (P%g-P%g percentiles)\n', soil_property, lower_pct*100, upper_pct*100))
+  cat(sprintf('if (soil_property == "%s") {\n', soil_property))
+  cat(sprintf('  cat("Applying %s range filters (P%g-P%g)...\\n")\n', soil_property, lower_pct*100, upper_pct*100))
+}
 cat('  n_before <- nrow(df_conc)\n')
 cat('  \n')
 
@@ -195,9 +217,14 @@ cat('}\n')
 # =============================================================================
 # OPTIONAL: CREATE CAPPED (WINSORIZED) COLUMNS
 # =============================================================================
-cap_to_percentile <- function(x, lower = lower_pct, upper = upper_pct) {
-  p_low  <- quantile(x, lower, na.rm = TRUE, names = FALSE)
-  p_high <- quantile(x, upper, na.rm = TRUE, names = FALSE)
+cap_to_range <- function(x) {
+  if (use_raw_range) {
+    p_low  <- lower_raw
+    p_high <- upper_raw
+  } else {
+    p_low  <- quantile(x, lower_pct, na.rm = TRUE, names = FALSE)
+    p_high <- quantile(x, upper_pct, na.rm = TRUE, names = FALSE)
+  }
   x <- ifelse(is.na(x), NA, pmin(pmax(x, p_low), p_high))
   x
 }
@@ -205,7 +232,7 @@ cap_to_percentile <- function(x, lower = lower_pct, upper = upper_pct) {
 for (d in names(depth_cols)) {
   col <- depth_cols[[d]]
   newcol <- paste0(soil_property, "_", gsub("-", "_", d), "_capped")
-  df[[newcol]] <- cap_to_percentile(as.numeric(df[[col]]))
+  df[[newcol]] <- cap_to_range(as.numeric(df[[col]]))
   df[[paste0(newcol, "_log")]] <- log1p(df[[newcol]])  # log-transformed target
 }
 
