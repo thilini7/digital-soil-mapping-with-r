@@ -15,9 +15,7 @@ set.seed(42)
 # =============================================================================
 # PATHS
 # =============================================================================
-HomeDir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
-ModelsDir <- file.path(HomeDir, "Models_v2")
-setwd(HomeDir)
+ModelsDir <- file.path("Models_v2")
 
 soil_property <- "pH"  #Options: Organic_Carbon, Nitrogen, Phosphorus, pH, Bulk_Density, CEC, EC, Clay, Sum_of_Bases etc.
 
@@ -31,12 +29,12 @@ cv_folds <- 10      # 10-fold CV for stable estimates
 cv_repeats <- 2     # MEMORY FIX: Reduced from 3
 
 data_input_path <- file.path(
-  HomeDir, "Data/data_out/RData_v2",
+  "Data/data_out/RData_v2",
   paste0(soil_property, "_covs_regression.RData")
 )
 
 soil_covariates_csv <- file.path(
-  HomeDir, "Data/data_out/Soil_data_with_covariates_v2",
+  "Data/data_out/Soil_data_with_covariates_v2",
   paste0(soil_property, "_with_covariates_new.csv")
 )
 

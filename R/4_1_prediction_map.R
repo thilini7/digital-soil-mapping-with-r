@@ -2,18 +2,17 @@ library(terra)
 library(Cubist)
 
 # --- Configuration ---
-HomeDir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
-ModelsDir <- file.path(HomeDir, "Models")
+ModelsDir <- file.path("Models")
 soil_property <- "Organic_Carbon"
 depth_name <- "X0.5cm"  # Change to desired depth: X0.5cm, X5.15cm, X15.30cm, X30.60cm, X60.100cm, X100.200cm
 
 # --- Paths ---
-cov_folder <- file.path(HomeDir, "Data/data_in/soil_covariates_aligned_v2")
+cov_folder <- file.path("Data/data_in/soil_covariates_aligned_v2")
 model_file <- file.path(ModelsDir, paste0("mod.cubist.", soil_property), "models", paste0(depth_name, ".rds"))
 output_tif <- file.path(ModelsDir, paste0("mod.cubist.", soil_property), "preds", paste0(soil_property, "_pred_", depth_name, ".tif"))
 
 # --- Load your covariate names (for reference) ---
-load(file.path(HomeDir, "Data/data_out/RData", paste0(soil_property, "_covs_regression.RData")))
+load(file.path("Data/data_out/RData", paste0(soil_property, "_covs_regression.RData")))
 # Note: The model may use fewer covariates due to NZV/correlation filtering
 
 # --- Load the trained Cubist model for a given depth ---

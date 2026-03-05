@@ -5,22 +5,17 @@ if (!requireNamespace("dplyr", quietly = TRUE)) install.packages("dplyr")
 library(terra)
 library(dplyr)
 
-# =============================================================================
-# FILE PATHS - CENTRALIZED CONFIGURATION
-# =============================================================================
-HomeDir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
-setwd(HomeDir)
 
 # INPUT: Change soil_property to match your data
 soil_property <- "pH"  #Options: Organic_Carbon, Nitrogen, Phosphorus, pH, Bulk_Density, CEC, EC, Clay, Sum_of_Bases etc.
 
 # Input paths
-cov_path <- file.path(HomeDir, "Data", "data_in", "soil_covariates_aligned_v2")
-soil_points_csv <- file.path(HomeDir, "Data", "data_out", "splined_data_v2", soil_property,
+cov_path <- file.path("Data", "data_in", "soil_covariates_aligned_v2")
+soil_points_csv <- file.path("Data", "data_out", "splined_data_v2", soil_property,
                              paste0(soil_property, "_splined_NSW_1991_2020_Data.csv"))
 
 # Output path
-output_dir <- file.path(HomeDir, "Data", "data_out", "Soil_data_with_covariates_v2")
+output_dir <- file.path("Data", "data_out", "Soil_data_with_covariates_v2")
 output_file <- file.path(output_dir, paste0(soil_property, "_with_covariates_new.csv"))
 
 # Print configuration

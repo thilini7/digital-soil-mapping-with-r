@@ -13,11 +13,10 @@ library(dplyr)
 # =============================================================================
 # 1. Define file paths
 # =============================================================================
-base_dir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
 
-nsw_shapefile <- file.path(base_dir, "Data/data_in/shp_files/NSW/NSWLanduse2017_Ver1_5_20230921.shp")
-act_shapefile <- file.path(base_dir, "Data/data_in/shp_files/ACT/ACT_landuse_final_2012.shp")
-merged_output <- file.path(base_dir, "Data/data_in/shp_files/NSW_ACT_Landuse_merged_new.shp")
+nsw_shapefile <- file.path("Data/data_in/shp_files/NSW/NSWLanduse2017_Ver1_5_20230921.shp")
+act_shapefile <- file.path("Data/data_in/shp_files/ACT/ACT_landuse_final_2012.shp")
+merged_output <- file.path("Data/data_in/shp_files/NSW_ACT_Landuse_merged_new.shp")
 
 # Check which files exist
 nsw_exists <- file.exists(nsw_shapefile)

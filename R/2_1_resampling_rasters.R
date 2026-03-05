@@ -9,11 +9,11 @@ dir.create(temp_dir, showWarnings = FALSE, recursive = TRUE)
 terraOptions(memfrac = 0.8, tempdir = temp_dir)
 
 # ----------- USER CONFIG -----------
-cov_path <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_in/soil_covariates" # source folder with raw rasters
-out_path <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_in/soil_covariates_aligned_v2"# output folder for aligned rasters
+cov_path <- "Data/data_in/soil_covariates" # source folder with raw rasters
+out_path <- "Data/data_in/soil_covariates_aligned_v3"# output folder for aligned rasters
 dir.create(out_path, showWarnings = FALSE, recursive = TRUE)
 
-ref_raster_path <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_in/soil_covariates/Relief_TPI_3s.tif"
+ref_raster_path <- "Data/data_in/soil_covariates/Relief_TPI_3s.tif"
 ref_rast <- rast(ref_raster_path)
 cat("Reference raster:\n", ref_raster_path, "\n")
 cat("  Extent:", paste(as.vector(ext(ref_rast)), collapse = " "), "\n")

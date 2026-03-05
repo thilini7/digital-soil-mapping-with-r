@@ -10,10 +10,6 @@ library(ggplot2)
 library(lubridate)
 library(nswgeo)
 
-# ---- Set working directory ----
-HomeDir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
-setwd(HomeDir)
-
 # =============================================================================
 # FILE PATHS - CENTRALIZED CONFIGURATION
 # =============================================================================
@@ -21,10 +17,10 @@ setwd(HomeDir)
 soil_property <- "pH"  #Options: Organic_Carbon, Nitrogen, Phosphorus, pH, Bulk_Density, CEC, EC, Clay, Sum_of_Bases etc.
 
 # Input data path
-data_in_dir <- file.path(HomeDir, "Data", "data_out", "lab_method_extracts")
+data_in_dir <- file.path("Data", "data_out", "lab_method_extracts")
 
 # Output data paths
-data_out_dir <- file.path(HomeDir, "Data", "data_out", "splined_data_v2", soil_property)
+data_out_dir <- file.path("Data", "data_out", "splined_data_v2", soil_property)
 data_output_filter_prefix <- file.path(data_out_dir, paste0(soil_property, "_filter_NSW"))
 data_output_splined_prefix <- file.path(data_out_dir, paste0(soil_property, "_splined_NSW"))
 

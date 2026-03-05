@@ -24,10 +24,9 @@ library(dplyr)
 # =============================================================================
 # 1. Define file paths
 # =============================================================================
-base_dir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
 
-shapefile_input <- file.path(base_dir, "Data/data_in/shp_files/NSW/NSWLanduse2017_Ver1_5_20230921.shp")
-shapefile_output <- file.path(base_dir, "Data/data_in/shp_files/NSW/NSWLanduse2017_with_LDI.shp")
+shapefile_input <- file.path("Data/data_in/shp_files/NSW/NSWLanduse2017_Ver1_5_20230921.shp")
+shapefile_output <- file.path("Data/data_in/shp_files/NSW/NSWLanduse2017_with_LDI.shp")
 
 # =============================================================================
 # 2. Define LDI mapping based on NSW Land Use Secondary Classification

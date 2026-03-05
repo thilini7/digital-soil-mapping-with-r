@@ -8,9 +8,8 @@ library(Cubist)
 library(caret)
 
 # --- 1. CONFIGURATION ---
-HomeDir       <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
-ModelsDir     <- file.path(HomeDir, "Models_v2")
-CovariatesDir <- file.path(HomeDir, "Data/data_in/soil_covariates_aligned_v2")
+ModelsDir     <- file.path("Models_v2")
+CovariatesDir <- file.path("Data/data_in/soil_covariates_aligned_v2")
 soil_property <- "Organic_Carbon"
 depth_name    <- "X0.30cm"
 model_file    <- file.path(ModelsDir, paste0("mod.cubist.", soil_property), "models", paste0(depth_name, ".rds"))
@@ -45,7 +44,7 @@ if (inherits(model, "train")) {
 }
 # Fallback
 if (is.null(model_cov_names)) {
-  load(file.path(HomeDir, "Data/data_out/RData", paste0(soil_property, "_covs_regression.RData")))
+  load(file.path("Data/data_out/RData", paste0(soil_property, "_covs_regression.RData")))
   model_cov_names <- cov_names
 }
 

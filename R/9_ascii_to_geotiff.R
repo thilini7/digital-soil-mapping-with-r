@@ -12,16 +12,12 @@ library(terra)
 # 1. Define file paths
 # ============================================================================
 
-# Set working directory to project root
-project_root <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
-setwd(project_root)
-
 # Input files
-ascii_file <- file.path(project_root, "Data/data_in/asci_files/Annual Min temp/mntan/mntan.txt")
-reference_raster_path <- file.path(project_root, "PM_Weathering_Index.tif")
+ascii_file <- file.path("Data/data_in/asci_files/Annual Min temp/mntan/mntan.txt")
+reference_raster_path <- file.path("PM_Weathering_Index.tif")
 
 # Output file
-output_raster_path <- file.path(project_root, "Data/data_out/Annual_Min_Temp_NSW_ACT_90m.tif")
+output_raster_path <- file.path("Data/data_out/Annual_Min_Temp_NSW_ACT_90m.tif")
 
 # Create output directory if it doesn't exist
 dir.create(dirname(output_raster_path), showWarnings = FALSE, recursive = TRUE)

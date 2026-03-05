@@ -12,12 +12,6 @@ suppressPackageStartupMessages({
   library(stringr)
 })
 
-# =============================================================================
-# FILE PATHS - CENTRALIZED CONFIGURATION
-# =============================================================================
-HomeDir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
-setwd(HomeDir)
-
 # INPUT: Soil property data file
 soil_property <- "EC"  #Options: Organic_Carbon, Nitrogen, Phosphorus, pH, Bulk_Density, CEC, EC, Clay, Sum_of_Bases etc.
 
@@ -56,11 +50,11 @@ if (soil_property == "EC") {
 }
 
 # Input file path - adjust to match your data location
-file_path <- file.path(HomeDir, "Data/data_out/Soil_data_with_covariates_v2",
+file_path <- file.path("Data/data_out/Soil_data_with_covariates_v2",
                        paste0(soil_property, "_with_covariates_new.csv"))
 
 # Output directory for stats
-output_dir <- file.path(HomeDir, "Data/data_out/Soil_property_ranges")
+output_dir <- file.path("Data/data_out/Soil_property_ranges")
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 cat("\n", paste(rep("=", 70), collapse = ""), "\n", sep = "")

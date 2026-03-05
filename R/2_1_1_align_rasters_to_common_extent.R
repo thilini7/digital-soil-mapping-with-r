@@ -8,10 +8,9 @@
 library(terra)
 
 # --- Configuration ---
-HomeDir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
 
-input_folder <- file.path(HomeDir, "Data/data_in/soil_covariates_aligned")
-output_folder <- file.path(HomeDir, "Data/data_in/soil_covariates_aligned_v2")
+input_folder <- file.path("Data/data_in/soil_covariates_aligned")
+output_folder <- file.path("Data/data_in/soil_covariates_aligned_v3")
 
 dir.create(output_folder, recursive = TRUE, showWarnings = FALSE)
 

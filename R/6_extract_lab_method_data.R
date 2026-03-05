@@ -56,19 +56,18 @@ library(tidyr)
 # =============================================================================
 # 1. Define file paths and parameters
 # =============================================================================
-base_dir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
 
 # Input file (with or without LDI)
-input_file <- file.path(base_dir, "Data/data_out/ansis_lab_measurements/All Sites/ANSIS_combined_with_LDI.csv")
+input_file <- file.path("Data/data_out/ansis_lab_measurements/All Sites/ANSIS_combined_with_LDI.csv")
 
 # If LDI file doesn't exist, use original
 if (!file.exists(input_file)) {
-  input_file <- file.path(base_dir, "Data/data_out/ansis_lab_measurements/All Sites/ANSIS_combined.csv")
+  input_file <- file.path("Data/data_out/ansis_lab_measurements/All Sites/ANSIS_combined.csv")
   cat("Note: Using original file without LDI\n")
 }
 
 # Output directory
-output_dir <- file.path(base_dir, "Data/data_out/lab_method_extracts")
+output_dir <- file.path("Data/data_out/lab_method_extracts")
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
 # =============================================================================

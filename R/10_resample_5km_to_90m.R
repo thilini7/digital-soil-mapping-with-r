@@ -12,18 +12,14 @@ library(terra)
 # 1. Define file paths
 # ============================================================================
 
-# Set working directory to project root
-project_root <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
-setwd(project_root)
-
 # Input directory with 5km rasters
-input_dir <- file.path(project_root, "Data/data_in/soil_cov_5km")
+input_dir <- file.path("Data/data_in/soil_cov_5km")
 
 # Reference raster for alignment (90m resolution, NSW/ACT extent)
-reference_raster_path <- file.path(project_root, "Annual_90th_Percen_Temp_NSW_ACT_90m.tif")
+reference_raster_path <- file.path("Annual_90th_Percen_Temp_NSW_ACT_90m.tif")
 
 # Output directory for resampled 90m rasters
-output_dir <- file.path(project_root, "Data/data_out/soil_cov_90m")
+output_dir <- file.path("Data/data_out/soil_cov_90m")
 
 # Create output directory if it doesn't exist
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)

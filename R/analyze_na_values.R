@@ -1,7 +1,7 @@
 # Analyze NA values in raster files to find best reference raster
 library(terra)
 
-cov_path <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r/Data/data_in/soil_covariates"
+cov_path <- "Data/data_in/soil_covariates"
 cov_files <- list.files(cov_path, pattern = ".tif$", full.names = TRUE)
 
 results <- data.frame(

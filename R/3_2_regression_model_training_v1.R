@@ -12,34 +12,33 @@ set.seed(42)
 # =============================================================================
 # FILE PATHS - CENTRALIZED CONFIGURATION
 # =============================================================================
-HomeDir <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
-setwd(HomeDir)
+
 
 # INPUT: Change soil_property to match your data file
 soil_property <- "EC"  # Options: pH, OC, BD, CEC, EC, Clay, etc.
 
 # Input data paths
-data_input_path <- file.path(HomeDir, "Data/data_out/RData", 
+data_input_path <- file.path("Data/data_out/RData", 
                              paste0(soil_property, "_covs_regression.RData"))
-soil_covariates_csv <- file.path(HomeDir, "Data/data_out/Soil_data_with_covariates",
+soil_covariates_csv <- file.path("Data/data_out/Soil_data_with_covariates",
                                  paste0(soil_property, "_with_covariates_new.csv"))
 
 # Output model directory name
 mod_type <- paste0("mod.regression.", soil_property)
 
 # Output subdirectories
-dir_models <- file.path(HomeDir, mod_type, "models")
-dir_cv <- file.path(HomeDir, mod_type, "cv")
-dir_metrics <- file.path(HomeDir, mod_type, "metrics")
-dir_preds <- file.path(HomeDir, mod_type, "preds")
-dir_importance <- file.path(HomeDir, mod_type, "importance")
+dir_models <- file.path(mod_type, "models")
+dir_cv <- file.path( mod_type, "cv")
+dir_metrics <- file.path(mod_type, "metrics")
+dir_preds <- file.path(mod_type, "preds")
+dir_importance <- file.path(mod_type, "importance")
 
 # Print configuration
 cat("\n", paste(rep("=", 70), collapse = ""), "\n", sep = "")
 cat("RANDOM FOREST MODEL TRAINING - CONFIGURATION\n")
 cat("Soil Property: ", soil_property, "\n", sep = "")
 cat("Input RData: ", basename(data_input_path), "\n", sep = "")
-cat("Output Directory: ", file.path(HomeDir, mod_type), "\n", sep = "")
+cat("Output Directory: ", file.path(mod_type), "\n", sep = "")
 cat(paste(rep("=", 70), collapse = ""), "\n\n", sep = "")
 
 # Optional helpers

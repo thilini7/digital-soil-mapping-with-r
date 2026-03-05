@@ -1,8 +1,7 @@
 library(terra)
 
 # 1. Setup Paths
-HomeDir    <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
-ModelsDir  <- file.path(HomeDir, "Models") 
+ModelsDir  <- file.path("Models") 
 # Updated path to your pH raster
 output_tif <- file.path(ModelsDir, "mod.cubist.Organic_Carbon/preds/Organic_Carbon_pred_X0.5cm.tif")
 

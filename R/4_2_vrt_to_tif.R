@@ -1,8 +1,7 @@
 library(terra)
 
 # --- Configuration ---
-HomeDir      <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
-ModelsDir    <- file.path(HomeDir, "Models_v2")
+ModelsDir    <- file.path("Models_v2")
 soil_property <- "Organic_Carbon"
 depth_name   <- "X0.30cm"
 TilesDir     <- file.path(ModelsDir, paste0("mod.cubist.", soil_property), "preds", paste0("tiles_", depth_name))

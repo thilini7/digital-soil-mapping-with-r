@@ -15,16 +15,13 @@ library(dplyr)
 # 1. Define file paths
 # ============================================================================
 
-# Set working directory to project root
-project_root <- "/Users/neo/Development/Thilini-git/digital-soil-mapping-with-r"
-setwd(project_root)
 
 # Input files
-shapefile_path <- file.path(project_root, "Data/data_in/shp_files/NSW_ACT_Landuse_merged_new.shp")
-reference_raster_path <- file.path(project_root, "PM_radmap_v4_2019_filtered_dose_GAPFilled.tif")
+shapefile_path <- file.path("Data/data_in/shp_files/NSW_ACT_Landuse_merged_new.shp")
+reference_raster_path <- file.path("PM_radmap_v4_2019_filtered_dose_GAPFilled.tif")
 
 # Output file
-output_raster_path <- file.path(project_root, "Data/data_out/LDI_NSW_ACT_90m_new.tif")
+output_raster_path <- file.path("Data/data_out/LDI_NSW_ACT_90m_new.tif")
 
 # Create output directory if it doesn't exist
 dir.create(dirname(output_raster_path), showWarnings = FALSE, recursive = TRUE)
