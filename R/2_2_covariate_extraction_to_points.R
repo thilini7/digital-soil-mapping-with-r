@@ -7,16 +7,19 @@ library(dplyr)
 
 
 # INPUT: Change soil_property to match your data
-soil_property <- "pH"  #Options: Organic_Carbon, Nitrogen, Phosphorus, pH, Bulk_Density, CEC, EC, Clay, Sum_of_Bases etc.
+soil_property <- "Bulk_Density"  #Options: Organic_Carbon, Nitrogen, Phosphorus, pH, Bulk_Density, CEC, EC, Clay, Sum_of_Bases etc.
+soil_depth <- "X0.30cm"
 
 # Input paths
-cov_path <- file.path("Data", "data_in", "soil_covariates_aligned_v2")
-soil_points_csv <- file.path("Data", "data_out", "splined_data_v2", soil_property,
-                             paste0(soil_property, "_splined_NSW_1991_2020_Data.csv"))
+cov_path <- file.path("Data", "data_in", "soil_covariates_for_geno_pheno_soil_aligned")
+#soil_points_csv <- file.path("Data", "data_out", "splined_data_v2", soil_property,
+#                            paste0(soil_property, "_splined_NSW_1991_2020_Data.csv"))
+
+soil_points_csv <- file.path("Data", "data_out", "geno_pheno_soil_extraction", soil_property, soil_depth,  "genosoil_Bulk_Density_X0.30cm.csv")
 
 # Output path
-output_dir <- file.path("Data", "data_out", "Soil_data_with_covariates_v2")
-output_file <- file.path(output_dir, paste0(soil_property, "_with_covariates_new.csv"))
+output_dir <- file.path("Data", "data_out", "Geno_pheno_soil_with_covariates_v2")
+output_file <- file.path(output_dir, paste0(soil_property, "_geno_with_covariates_new.csv"))
 
 # Print configuration
 cat("\n", paste(rep("=", 70), collapse = ""), "\n", sep = "")
@@ -59,8 +62,20 @@ cov_values <- terra::extract(cov_stack, pts_vect)
 # Remove the first column (ID), as extract adds a point ID column
 cov_values <- cov_values[, -1, drop = FALSE]
 
+# 4b. Round all covariate values to 4 decimal places
+cov_values <- as.data.frame(lapply(cov_values, function(x) {
+  if (is.numeric(x)) round(x, 4) else x
+}))
+cat("Rounded all covariate values to 4 decimal places.\n")
+
 # 5. Combine soil property + extracted covariates
 soil_with_covs <- cbind(soil_points, cov_values)
+
+# 5b. Remove Geno_Pheno_Soil column if present
+if ("Geno_Pheno_Soil" %in% names(soil_with_covs)) {
+  soil_with_covs <- soil_with_covs[, !names(soil_with_covs) %in% "Geno_Pheno_Soil"]
+  cat("Removed 'Geno_Pheno_Soil' column from output.\n")
+}
 
 # 6. Save dataset for modeling
 dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
