@@ -21,14 +21,17 @@ library(dplyr)
 set.seed(42)  # For reproducibility
 
 # INPUT: Change soil_property and depth_layer to match your data
-soil_property <- "Bulk_Density"       # Options: Organic_Carbon, Nitrogen, Phosphorus, pH, Bulk_Density, CEC, EC, Sum_of_Bases
+soil_property <- "AWC"       # Options: Organic_Carbon, Nitrogen, Phosphorus, pH, Bulk_Density, CEC, EC, Sum_of_Bases
 depth_layer   <- "X0.30cm"  # Options: X0.30cm, X30.60cm, X60.100cm, X100.200cm
-geno_pheno_soil_type <- "phenosoil"
+geno_pheno_soil_type <- "genosoil"
 
 # ---- Input paths ----
-geno_pheno_soil_path <- file.path("Data", "data_in_v2", "genosoil_phenosoil", "phenosoil_nsw.tif")
+geno_pheno_soil_path <- file.path("Data", "data_in_v2", "genosoil_phenosoil", "genosoil_nsw.tif")
 pred_path     <- file.path("Models_v2", paste0("mod.cubist.", soil_property), "preds",
                            paste0(soil_property, "_pred_", depth_layer, ".tif"))
+#This path for different raster files
+# pred_path     <- file.path("Data", "data_out", "AWC",
+#                                   paste0(soil_property, "_pct_", depth_layer, ".tif"))
 
 # ---- Output paths ----
 output_dir <- file.path("Data", "data_out", "geno_pheno_soil_extraction", soil_property, depth_layer)
