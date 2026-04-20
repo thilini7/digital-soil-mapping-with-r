@@ -86,6 +86,55 @@ if (length(missing) > 0) {
 cat("  All 3 summary rasters found.\n\n")
 
 # =============================================================================
+# Study area boundary (NSW + ACT)
+# =============================================================================
+# Disable s2 spherical geometry — broken abseil dylib on this system
+old_s2 <- tryCatch(sf_use_s2(FALSE), error = function(e) FALSE)
+
+nsw_boundary <- tryCatch({
+  if (requireNamespace("ozmaps", quietly = TRUE)) {
+    oz  <- ozmaps::ozmap_states
+    sa  <- oz[oz$NAME %in% c("New South Wales",
+                              "Australian Capital Territory"), ]
+    sa  <- st_transform(sa, 4326)
+    st_union(sa)
+  } else {
+    NULL
+  }
+}, error = function(e) NULL)
+
+# Outer mask: polygon covering everything OUTSIDE study area, filled white
+nsw_outer_mask <- tryCatch({
+  if (!is.null(nsw_boundary)) {
+    bbox <- st_bbox(nsw_boundary)
+    new_bbox <- c(xmin = as.numeric(bbox["xmin"]) - 5,
+                  ymin = as.numeric(bbox["ymin"]) - 5,
+                  xmax = as.numeric(bbox["xmax"]) + 5,
+                  ymax = as.numeric(bbox["ymax"]) + 5)
+    outer_box <- st_as_sfc(st_bbox(new_bbox, crs = st_crs(nsw_boundary)))
+    st_difference(outer_box, nsw_boundary)
+  } else {
+    NULL
+  }
+}, error = function(e) NULL)
+
+# Terra SpatVector — used to mask rasters for statistics
+nsw_vect <- tryCatch({
+  if (!is.null(nsw_boundary)) vect(nsw_boundary) else NULL
+}, error = function(e) NULL)
+
+# Restore s2 setting
+tryCatch(sf_use_s2(old_s2), error = function(e) NULL)
+
+# Map extent limits — tight crop to study area with small padding
+map_xlim <- map_ylim <- NULL
+if (!is.null(nsw_boundary)) {
+  bbox <- st_bbox(nsw_boundary)
+  map_xlim <- c(as.numeric(bbox["xmin"]) - 0.3, as.numeric(bbox["xmax"]) + 0.3)
+  map_ylim <- c(as.numeric(bbox["ymin"]) - 0.3, as.numeric(bbox["ymax"]) + 0.3)
+}
+
+# =============================================================================
 # Quick stats via terra::global()  (no values() → zero extra memory)
 # =============================================================================
 cat("Computing raster statistics (disk-based)...\n")
@@ -116,25 +165,13 @@ gc(verbose = FALSE)
 # =============================================================================
 sample_raster <- function(tif_path, n = HIST_SAMPLE_N) {
   r <- rast(tif_path)
+  if (!is.null(nsw_vect)) r <- mask(r, nsw_vect)
   idx <- spatSample(r, size = n, method = "random", na.rm = TRUE,
                     as.df = TRUE)
   vals <- idx[[1]]
   rm(r, idx); gc(verbose = FALSE)
   return(as.numeric(vals))
 }
-
-# =============================================================================
-# NSW boundary
-# =============================================================================
-nsw_boundary <- tryCatch({
-  if (requireNamespace("ozmaps", quietly = TRUE)) {
-    oz  <- ozmaps::ozmap_states
-    nsw <- oz[oz$NAME == "New South Wales", ]
-    st_transform(nsw, 4326)
-  } else {
-    NULL
-  }
-}, error = function(e) NULL)
 
 # Publication theme
 theme_pub <- theme_bw(base_size = 12) +
@@ -190,6 +227,9 @@ make_map <- function(tif_path, title, subtitle, palette, limits, breaks,
   }
 
   p <- p +
+    {if (!is.null(nsw_outer_mask))
+      geom_sf(data = nsw_outer_mask, fill = "white", colour = NA)
+    } +
     {if (!is.null(nsw_boundary))
       geom_sf(data = nsw_boundary, fill = NA, colour = "black",
               linewidth = 0.4)
@@ -207,7 +247,7 @@ make_map <- function(tif_path, title, subtitle, palette, limits, breaks,
     ) +
     labs(title = title, subtitle = subtitle,
          x = "Longitude", y = "Latitude") +
-    coord_sf(expand = FALSE) +
+    coord_sf(xlim = map_xlim, ylim = map_ylim, expand = FALSE) +
     theme_pub +
     theme(
       legend.position   = "right",
@@ -264,6 +304,9 @@ make_cat_map <- function(tif_path, title, subtitle, cat_labels, cat_colours) {
       name     = "Category",
       drop     = FALSE
     ) +
+    {if (!is.null(nsw_outer_mask))
+      geom_sf(data = nsw_outer_mask, fill = "white", colour = NA)
+    } +
     {if (!is.null(nsw_boundary))
       geom_sf(data = nsw_boundary, fill = NA, colour = "black",
               linewidth = 0.4)
@@ -281,7 +324,7 @@ make_cat_map <- function(tif_path, title, subtitle, cat_labels, cat_colours) {
     ) +
     labs(title = title, subtitle = subtitle,
          x = "Longitude", y = "Latitude") +
-    coord_sf(expand = FALSE) +
+    coord_sf(xlim = map_xlim, ylim = map_ylim, expand = FALSE) +
     theme_pub +
     theme(
       legend.position   = "right",
@@ -333,7 +376,7 @@ p <- make_map(
   limits   = c(0, 1),
   breaks   = seq(0, 1, by = 0.2)
 )
-ggsave(cap_map_png, p, width = 10, height = 8, dpi = 300)
+ggsave(cap_map_png, p, width = 14, height = 11, dpi = 300)
 cat("  Saved: ", cap_map_png, "\n")
 rm(p); gc(verbose = FALSE)
 
@@ -349,7 +392,7 @@ p <- make_map(
   limits   = c(0, 1),
   breaks   = seq(0, 1, by = 0.2)
 )
-ggsave(con_map_png, p, width = 10, height = 8, dpi = 300)
+ggsave(con_map_png, p, width = 14, height = 11, dpi = 300)
 cat("  Saved: ", con_map_png, "\n")
 rm(p); gc(verbose = FALSE)
 
@@ -374,7 +417,7 @@ p <- make_map(
   diverging = TRUE,
   midpoint  = 0
 )
-ggsave(chg_map_png, p, width = 10, height = 8, dpi = 300)
+ggsave(chg_map_png, p, width = 14, height = 11, dpi = 300)
 cat("  Saved: ", chg_map_png, "\n\n")
 rm(p); gc(verbose = FALSE)
 
@@ -434,6 +477,7 @@ cat(paste(rep("=", 70), collapse = ""), "\n\n")
 # Helper: classify raster, save, return freq table (no values() call)
 classify_and_save <- function(tif_in, tif_out, brks, labels) {
   r <- rast(tif_in)
+  if (!is.null(nsw_vect)) r <- mask(r, nsw_vect)
   rcl <- matrix(c(brks[-length(brks)], brks[-1], seq_along(labels)), ncol = 3)
   cat_r <- classify(r, rcl = rcl, include.lowest = TRUE)
   levels(cat_r) <- data.frame(id = seq_along(labels), category = labels)
@@ -523,7 +567,7 @@ p <- make_cat_map(con_cat_tif,
                   subtitle = paste0("Depth: ", depth_label),
                   cat_labels = condition_labels,
                   cat_colours = condition_colours)
-ggsave(con_cat_png, p, width = 10, height = 8, dpi = 300)
+ggsave(con_cat_png, p, width = 14, height = 11, dpi = 300)
 cat("  Saved: ", con_cat_png, "\n")
 rm(p); gc(verbose = FALSE)
 
@@ -535,7 +579,7 @@ p <- make_cat_map(cap_cat_tif,
                   subtitle = paste0("Depth: ", depth_label),
                   cat_labels = capacity_labels,
                   cat_colours = capacity_colours)
-ggsave(cap_cat_png, p, width = 10, height = 8, dpi = 300)
+ggsave(cap_cat_png, p, width = 14, height = 11, dpi = 300)
 cat("  Saved: ", cap_cat_png, "\n")
 rm(p); gc(verbose = FALSE)
 
@@ -547,7 +591,7 @@ p <- make_cat_map(chg_cat_tif,
                   subtitle = paste0("Mean \u0394U | Depth: ", depth_label),
                   cat_labels = change_cat_labels,
                   cat_colours = change_cat_colours)
-ggsave(chg_cat_png, p, width = 10, height = 8, dpi = 300)
+ggsave(chg_cat_png, p, width = 14, height = 11, dpi = 300)
 cat("  Saved: ", chg_cat_png, "\n")
 rm(p); gc(verbose = FALSE)
 
